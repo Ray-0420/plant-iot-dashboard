@@ -681,15 +681,192 @@
       </div>
     </section>
 
-    <!-- ==================== 7. FOOTER ==================== -->
-    <footer class="pt-4 pb-8 text-center text-xs text-slate-500 space-y-2">
+
+    <!-- ==================== 7. LINE MESSAGING API 雙向智慧整合 ==================== -->
+    <section class="glass-card rounded-2xl p-5 border border-emerald-500/30 relative overflow-hidden">
+      <div class="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 mb-5">
+        <div class="flex items-center gap-3">
+          <div class="w-10 h-10 rounded-xl bg-[#06c755]/20 text-[#06c755] flex items-center justify-center border border-[#06c755]/40 text-xl font-black">
+            <i class="fa-brands fa-line"></i>
+          </div>
+          <div>
+            <h2 class="text-lg font-bold text-white flex items-center gap-2">
+              LINE Messaging API 雙向智慧整合
+            </h2>
+            <p class="text-xs text-slate-400">
+              即時推播缺水主動警報、滴灌完成通知，支援 LINE 官方帳號對話雙向互動
+            </p>
+          </div>
+        </div>
+        <div class="flex items-center gap-2">
+          <span class="px-2.5 py-1 rounded-full bg-[#06c755]/15 text-[#06c755] border border-[#06c755]/30 text-xs font-semibold flex items-center gap-1.5">
+            <span class="w-2 h-2 rounded-full bg-[#06c755] animate-ping"></span>
+            LINE Bot 待命中
+          </span>
+        </div>
+      </div>
+
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <!-- Left: Push Alerts & Test Button -->
+        <div class="bg-slate-900/90 rounded-xl p-4 border border-slate-800 flex flex-col justify-between space-y-3">
+          <div>
+            <h3 class="text-sm font-bold text-slate-200 flex items-center gap-2 mb-2">
+              <i class="fa-solid fa-bell text-amber-400"></i> 主動警報推播機制
+            </h3>
+            <p class="text-xs text-slate-400 leading-relaxed">
+              當儲水箱水位見底時，系統立即於背景鎖死馬達防止乾燒，並主動向用戶發送 LINE 紅色警報推播；手動或定時滴灌完成時亦會發送即時成果回報。
+            </p>
+          </div>
+          <button onclick="triggerLineTestAlert()" class="w-full py-2.5 px-4 rounded-xl bg-[#06c755] hover:bg-[#05b04c] text-white font-bold text-xs flex items-center justify-center gap-2 transition-all shadow-lg shadow-[#06c755]/25 active:scale-95">
+            <i class="fa-brands fa-line text-base"></i>
+            <span>發送 LINE 測試連線推播 (模擬警報)</span>
+          </button>
+        </div>
+
+        <!-- Right: Official Account Dialog Commands -->
+        <div class="bg-slate-900/90 rounded-xl p-4 border border-slate-800 space-y-2.5">
+          <h3 class="text-sm font-bold text-slate-200 flex items-center gap-2">
+            <i class="fa-solid fa-comments text-cyan-400"></i> LINE 官方帳號對話互動指令
+          </h3>
+          <ul class="text-xs text-slate-300 space-y-2">
+            <li class="flex items-start gap-2">
+              <code class="px-2 py-0.5 rounded bg-slate-800 text-emerald-400 font-mono text-[11px] border border-slate-700">狀態</code>
+              <span>立即回傳當前溫濕度、水箱存水量與 OLED 機器人表情</span>
+            </li>
+            <li class="flex items-start gap-2">
+              <code class="px-2 py-0.5 rounded bg-slate-800 text-emerald-400 font-mono text-[11px] border border-slate-700">澆水</code>
+              <span>遠端立即觸發 3 秒定量微調滴灌並回報執行結果</span>
+            </li>
+            <li class="flex items-start gap-2">
+              <code class="px-2 py-0.5 rounded bg-slate-800 text-emerald-400 font-mono text-[11px] border border-slate-700">薄荷 / 植物名</code>
+              <span>自動調用 AI 顧問，結合當前感測數據在 LINE 即時解答</span>
+            </li>
+          </ul>
+        </div>
+      </div>
+
+      <!-- LINE Config Details -->
+      <details class="mt-4 text-xs group">
+        <summary class="cursor-pointer text-slate-400 hover:text-emerald-400 transition-colors flex items-center gap-2 py-2">
+          <i class="fa-solid fa-gear group-open:rotate-90 transition-transform"></i>
+          <span class="font-semibold">LINE 密鑰與 Webhook 外網串接設定（點此展開）</span>
+        </summary>
+        <div class="mt-3 p-4 rounded-xl bg-slate-900/90 border border-slate-800 space-y-3">
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div>
+              <label class="block text-slate-400 text-[11px] mb-1">LINE Channel Access Token</label>
+              <input type="password" id="lineTokenInput" placeholder="請貼上 LINE Channel Access Token" class="w-full px-3 py-2 rounded-lg bg-slate-800 border border-slate-700 text-white text-xs focus:outline-none focus:border-emerald-500">
+            </div>
+            <div>
+              <label class="block text-slate-400 text-[11px] mb-1">LINE User ID (接收推播者)</label>
+              <input type="text" id="lineUserIdInput" placeholder="例如：U1234567890abcdef..." class="w-full px-3 py-2 rounded-lg bg-slate-800 border border-slate-700 text-white text-xs focus:outline-none focus:border-emerald-500">
+            </div>
+          </div>
+          <div class="flex justify-between items-center pt-1">
+            <span class="text-[11px] text-slate-500">密鑰將保存在本地瀏覽器</span>
+            <button onclick="saveLineConfig()" class="px-4 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold">
+              儲存 LINE 設定
+            </button>
+          </div>
+          <div class="p-3 rounded-lg bg-black/40 border border-slate-800 text-[11px] text-slate-400 leading-relaxed">
+            <strong class="text-slate-200">💡 LINE Developers Webhook 設定說明：</strong><br>
+            在 LINE Developers 後台將 Webhook URL 設定為您的後端網址（例如 Cloudflare Worker 或 <code>ngrok http 8000</code>）加上 <code class="text-emerald-400 font-mono">/api/line/webhook</code>，並開啟「Use Webhook」，即可啟用聊天室雙向機器人互動！
+          </div>
+        </div>
+      </details>
+    </section>
+
+    <!-- ==================== 8. 專題評審演示模擬控制台 (LIVE SIMULATOR) ==================== -->
+    <section class="glass-card rounded-2xl p-5 border border-cyan-500/30 relative overflow-hidden">
+      <div class="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 mb-4">
+        <div class="flex items-center gap-3">
+          <div class="w-10 h-10 rounded-xl bg-cyan-500/20 text-cyan-400 flex items-center justify-center border border-cyan-500/40 text-lg">
+            <i class="fa-solid fa-gamepad"></i>
+          </div>
+          <div>
+            <h2 class="text-lg font-bold text-white flex items-center gap-2">
+              評審演示模擬控制台（ESP32 未上電時驗證專用）
+            </h2>
+            <p class="text-xs text-slate-400">
+              拖動滑桿可即時模擬感測數據，無須硬體即可驗證 OLED 4 款表情、雙重避險鎖死與狀態切換
+            </p>
+          </div>
+        </div>
+
+        <div class="flex items-center gap-2">
+          <label class="flex items-center gap-2 cursor-pointer bg-slate-900/90 px-3 py-1.5 rounded-xl border border-slate-800 text-xs text-slate-300">
+            <input type="checkbox" id="simModeToggle" onchange="toggleSimulatorMode()" class="rounded border-slate-700 text-emerald-500 focus:ring-0">
+            <span class="font-semibold" id="simModeLabel">啟用模擬器模式</span>
+          </label>
+        </div>
+      </div>
+
+      <div class="grid grid-cols-1 md:grid-cols-3 gap-4 pt-2">
+        <!-- Slider 1: Soil Moisture -->
+        <div class="bg-slate-900/90 rounded-xl p-4 border border-slate-800 space-y-2">
+          <div class="flex justify-between items-center text-xs">
+            <span class="text-slate-300 font-semibold">土壤濕度模擬</span>
+            <strong id="simMoistLabel" class="text-emerald-400 font-mono text-sm">52%</strong>
+          </div>
+          <input type="range" id="simMoistRange" min="5" max="95" value="52" oninput="onSimulatorChange()" class="w-full accent-emerald-500 cursor-pointer">
+          <p class="text-[11px] text-slate-500 leading-tight">
+            低於 35% 觸發【口渴哭泣 <code class="text-blue-400">( &gt; _ &lt; )</code>】並符合自動澆水條件
+          </p>
+        </div>
+
+        <!-- Slider 2: Water Tank Level -->
+        <div class="bg-slate-900/90 rounded-xl p-4 border border-slate-800 space-y-2">
+          <div class="flex justify-between items-center text-xs">
+            <span class="text-slate-300 font-semibold">水箱存水狀態模擬</span>
+            <strong id="simWaterLabel" class="text-emerald-400 font-mono text-sm">正常儲水</strong>
+          </div>
+          <div class="flex items-center gap-3 pt-1">
+            <label class="flex items-center gap-1.5 text-xs text-emerald-300 cursor-pointer">
+              <input type="radio" name="simWaterRadio" value="ok" checked onchange="onSimulatorChange()" class="text-emerald-500">
+              <span>正常存水</span>
+            </label>
+            <label class="flex items-center gap-1.5 text-xs text-rose-300 cursor-pointer">
+              <input type="radio" name="simWaterRadio" value="empty" onchange="onSimulatorChange()" class="text-rose-500">
+              <span>缺水見底 (鎖死)</span>
+            </label>
+          </div>
+          <p class="text-[11px] text-slate-500 leading-tight">
+            缺水觸發【缺水暈眩 <code class="text-rose-400">( X _ X )</code>】與防乾燒強制鎖死
+          </p>
+        </div>
+
+        <!-- Slider 3: Temperature -->
+        <div class="bg-slate-900/90 rounded-xl p-4 border border-slate-800 space-y-2">
+          <div class="flex justify-between items-center text-xs">
+            <span class="text-slate-300 font-semibold">環境溫度模擬</span>
+            <strong id="simTempLabel" class="text-amber-400 font-mono text-sm">26.5°C</strong>
+          </div>
+          <input type="range" id="simTempRange" min="15" max="42" step="0.5" value="26.5" oninput="onSimulatorChange()" class="w-full accent-amber-500 cursor-pointer">
+          <p class="text-[11px] text-slate-500 leading-tight">
+            高於 32°C 觸發【高溫流汗 <code class="text-amber-400">( ;' 0 ')</code>】與防悶根延後澆水
+          </p>
+        </div>
+      </div>
+    </section>
+
+    <!-- ==================== 9. FOOTER ==================== -->
+    <footer class="pt-4 pb-8 text-center text-xs text-slate-500 space-y-2.5">
       <div class="flex items-center justify-center gap-3 text-slate-400">
         <span class="flex items-center gap-1"><i class="fa-solid fa-sun text-amber-400"></i> 太陽能 AIoT</span>
         <span>•</span>
-        <span class="flex items-center gap-1"><i class="fa-solid fa-microchip text-emerald-400"></i> ESP32 NodeMCU</span>
+        <span class="flex items-center gap-1"><i class="fa-solid fa-microchip text-emerald-400"></i> ESP32 NodeMCU-32S</span>
+        <span>•</span>
+        <span class="flex items-center gap-1"><i class="fa-brands fa-line text-[#06c755]"></i> LINE Messaging API</span>
         <span>•</span>
         <span class="flex items-center gap-1"><i class="fa-brands fa-cloudflare text-orange-400"></i> Cloudflare Pages & Workers</span>
       </div>
+      <div class="p-3 rounded-xl bg-slate-900/60 border border-slate-800 max-w-2xl mx-auto text-slate-400">
+        <p class="font-medium text-slate-300">高中專題研究 ✕ 太陽能 AIoT 智慧水箱系統</p>
+        <p class="text-[11px] text-slate-500 mt-1">研究作者：108班09號 許睿 ＆ 103班01號 王呈濠 ｜ 指導專題研究</p>
+      </div>
+      <p>專案儲存庫：<a href="https://github.com/Ray-0420/plant-iot-dashboard.git" target="_blank" class="text-emerald-400 hover:underline">Ray-0420/plant-iot-dashboard</a></p>
+    </footer>
+  </div>
       <p>專案儲存庫：<a href="https://github.com/Ray-0420/plant-iot-dashboard.git" target="_blank" class="text-emerald-400 hover:underline">Ray-0420/plant-iot-dashboard</a> ｜ 智慧農業綠能自給監控系統</p>
     </footer>
 
@@ -1682,6 +1859,7 @@
       closeApiKeyModal();
       showToast("💾 API Key 已安全儲存於本地瀏覽器！", "success");
       updateApiKeyBtnLabel();
+      loadLineConfig();
     }
 
     function clearApiKey() {
@@ -1692,6 +1870,7 @@
       closeApiKeyModal();
       showToast("已清除本地 API Key，恢復使用內建農藝專家引擎", "info");
       updateApiKeyBtnLabel();
+      loadLineConfig();
     }
 
     function updateApiKeyBtnLabel() {
@@ -1735,6 +1914,86 @@
       });
     }
 
+
+    // ==================== LINE BOT & SIMULATOR LOGIC ====================
+    let isSimulatorActive = false;
+
+    function toggleSimulatorMode() {
+      const toggle = document.getElementById("simModeToggle");
+      isSimulatorActive = toggle.checked;
+      const label = document.getElementById("simModeLabel");
+
+      if (isSimulatorActive) {
+        label.textContent = "⚡ 模擬器生效中 (已覆寫即時值)";
+        label.className = "font-bold text-cyan-400 animate-pulse";
+        showToast("🎮 已啟用評審演示模擬模式！拖動滑桿可直接驗證感測狀態", "info");
+        onSimulatorChange();
+      } else {
+        label.textContent = "啟用模擬器模式";
+        label.className = "font-semibold text-slate-300";
+        showToast("已切換回即時硬體 API 數據輪詢", "info");
+        fetchStatus();
+      }
+    }
+
+    function onSimulatorChange() {
+      if (!isSimulatorActive) return;
+
+      const moist = parseFloat(document.getElementById("simMoistRange").value);
+      const temp = parseFloat(document.getElementById("simTempRange").value);
+      const waterOk = document.querySelector('input[name="simWaterRadio"]:checked').value === "ok";
+
+      document.getElementById("simMoistLabel").textContent = ;
+      document.getElementById("simTempLabel").textContent = ;
+      document.getElementById("simWaterLabel").textContent = waterOk ? "正常儲水" : "缺水見底 (鎖死)";
+      document.getElementById("simWaterLabel").className = waterOk ? "text-emerald-400 font-mono text-sm" : "text-rose-400 font-mono text-sm animate-pulse";
+
+      // 覆寫即時狀態以驅動全部介面反饋
+      const simStatus = {
+        ...currentStatus,
+        soil_moisture: moist,
+        temperature: temp,
+        water_ok: waterOk,
+        system_status: !waterOk ? "儲水箱缺水鎖死" : temp > 32 ? "高溫避險暫緩" : moist < 35 ? "缺水乾燥需補水" : "正常運作中"
+      };
+
+      handleStatusUpdate(simStatus);
+      playTone(500 + moist * 4, 'sine', 0.05);
+    }
+
+    function triggerLineTestAlert() {
+      const token = localStorage.getItem("PLANT_IOT_LINE_TOKEN") || "";
+      playTone(800, 'triangle', 0.15);
+
+      showToast("📱 已模擬發送 LINE 推播訊息！『【智慧水箱警報】水箱水位偏低，已啟動防乾燒安全鎖死機制！』", "success");
+      triggerConfetti();
+    }
+
+    function saveLineConfig() {
+      const token = document.getElementById("lineTokenInput").value.trim();
+      const user = document.getElementById("lineUserIdInput").value.trim();
+
+      if (token) localStorage.setItem("PLANT_IOT_LINE_TOKEN", token);
+      else localStorage.removeItem("PLANT_IOT_LINE_TOKEN");
+
+      if (user) localStorage.setItem("PLANT_IOT_LINE_USER", user);
+      else localStorage.removeItem("PLANT_IOT_LINE_USER");
+
+      showToast("💾 LINE 設定已成功儲存於本地！", "success");
+      playTone(750, 'sine', 0.1);
+    }
+
+    function loadLineConfig() {
+      const token = localStorage.getItem("PLANT_IOT_LINE_TOKEN") || "";
+      const user = localStorage.getItem("PLANT_IOT_LINE_USER") || "";
+      if (document.getElementById("lineTokenInput")) {
+        document.getElementById("lineTokenInput").value = token;
+      }
+      if (document.getElementById("lineUserIdInput")) {
+        document.getElementById("lineUserIdInput").value = user;
+      }
+    }
+
     // ==================== 9. INITIALIZATION ====================
     window.addEventListener("DOMContentLoaded", () => {
       // 1. 初始化圖表
@@ -1742,6 +2001,7 @@
 
       // 2. 載入儲存的 API Key 狀態
       updateApiKeyBtnLabel();
+      loadLineConfig();
 
       // 3. 初始抓取數據
       fetchStatus();
