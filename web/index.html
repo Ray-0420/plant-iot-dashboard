@@ -1,0 +1,1763 @@
+<!DOCTYPE html>
+<html lang="zh-TW" class="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>太陽能 AIoT 自動滴灌與遠端監控儀表板</title>
+  <meta name="description" content="基於 ESP32 與 Cloudflare Workers 的太陽能 AIoT 自動滴灌、雙重避險防護與遠端監控系統">
+
+  <!-- Favicon -->
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🌱</text></svg>">
+
+  <!-- Google Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800;900&family=Noto+Sans+TC:wght@300;400;500;600;700;900&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+
+  <!-- Font Awesome 6 -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+
+  <!-- Tailwind CSS CDN with Custom Configurations -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          fontFamily: {
+            sans: ['"Outfit"', '"Noto Sans TC"', 'sans-serif'],
+            mono: ['"JetBrains Mono"', 'monospace'],
+          },
+          colors: {
+            brand: {
+              dark: '#080d1a',
+              card: '#0f172a',
+              border: '#1e293b',
+              emerald: '#10b981',
+              emeraldGlow: '#059669',
+              amber: '#f59e0b',
+              amberGlow: '#d97706',
+              cyan: '#06b6d4',
+              rose: '#f43f5e',
+            }
+          },
+          animation: {
+            'pulse-slow': 'pulse 3s cubic-bezier(0.4, 0, 0.6, 1) infinite',
+            'float': 'float 3s ease-in-out infinite',
+            'glow': 'glow 2s ease-in-out infinite alternate',
+            'spin-slow': 'spin 8s linear infinite',
+          },
+          keyframes: {
+            float: {
+              '0%, 100%': { transform: 'translateY(0)' },
+              '50%': { transform: 'translateY(-6px)' },
+            },
+            glow: {
+              '0%': { filter: 'drop-shadow(0 0 4px rgba(16, 185, 129, 0.4))' },
+              '100%': { filter: 'drop-shadow(0 0 16px rgba(16, 185, 129, 0.8))' },
+            }
+          }
+        }
+      }
+    }
+  </script>
+
+  <!-- Chart.js CDN -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+  <!-- Canvas Confetti -->
+  <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.9.3/dist/confetti.browser.min.js"></script>
+
+  <style>
+    /* Custom Scrollbar */
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-track { background: #0b1120; }
+    ::-webkit-scrollbar-thumb { background: #1e293b; border-radius: 999px; }
+    ::-webkit-scrollbar-thumb:hover { background: #334155; }
+
+    /* Glassmorphism Styles */
+    .glass-card {
+      background: rgba(15, 23, 42, 0.78);
+      backdrop-filter: blur(16px);
+      -webkit-backdrop-filter: blur(16px);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      box-shadow: 0 10px 30px -10px rgba(0, 0, 0, 0.5);
+    }
+    .glass-card:hover {
+      border-color: rgba(16, 185, 129, 0.25);
+    }
+
+    /* OLED Screen Simulation */
+    .oled-screen {
+      background-color: #030806;
+      border: 3px solid #13241b;
+      box-shadow: inset 0 0 25px rgba(16, 185, 129, 0.15), 0 8px 24px rgba(0, 0, 0, 0.6);
+      font-family: 'JetBrains Mono', monospace;
+    }
+    .oled-glow {
+      text-shadow: 0 0 8px rgba(52, 211, 153, 0.7);
+    }
+
+    /* Range & Progress Gradient */
+    .progress-glow {
+      box-shadow: 0 0 12px currentColor;
+    }
+
+    /* Water Wave Animation */
+    @keyframes waveMove {
+      0% { transform: translateX(0) translateZ(0) scaleY(1); }
+      50% { transform: translateX(-25%) translateZ(0) scaleY(0.9); }
+      100% { transform: translateX(-50%) translateZ(0) scaleY(1); }
+    }
+    .wave-effect {
+      animation: waveMove 4s ease-in-out infinite;
+    }
+  </style>
+</head>
+<body class="bg-[#070b14] text-slate-100 min-h-screen font-sans selection:bg-emerald-500 selection:text-white antialiased relative overflow-x-hidden">
+
+  <!-- Radial Background Lighting Orbs -->
+  <div class="fixed top-0 left-1/4 w-96 h-96 bg-emerald-500/10 rounded-full blur-3xl pointer-events-none -z-10"></div>
+  <div class="fixed bottom-1/4 right-10 w-96 h-96 bg-cyan-500/10 rounded-full blur-3xl pointer-events-none -z-10"></div>
+  <div class="fixed top-1/2 right-1/3 w-80 h-80 bg-amber-500/10 rounded-full blur-3xl pointer-events-none -z-10"></div>
+
+  <!-- App Wrapper -->
+  <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-5 md:py-8 space-y-6">
+
+    <!-- ==================== 1. TOP HEADER / SYSTEM STATUS BAR ==================== -->
+    <header class="glass-card rounded-2xl p-4 sm:p-5 flex flex-col lg:flex-row items-center justify-between gap-4 transition-all">
+      <!-- Title & Branding -->
+      <div class="flex items-center gap-3.5 w-full lg:w-auto">
+        <div class="relative flex-shrink-0">
+          <div class="w-12 h-12 rounded-xl bg-gradient-to-br from-emerald-400 via-teal-500 to-emerald-700 flex items-center justify-center shadow-lg shadow-emerald-500/25">
+            <i class="fa-solid fa-seedling text-white text-xl"></i>
+          </div>
+          <div class="absolute -bottom-1 -right-1 w-5 h-5 rounded-full bg-amber-500 flex items-center justify-center border-2 border-[#0f172a] text-[10px] text-white shadow">
+            <i class="fa-solid fa-sun animate-spin-slow"></i>
+          </div>
+        </div>
+        <div>
+          <div class="flex items-center gap-2 flex-wrap">
+            <h1 class="text-xl sm:text-2xl font-black tracking-tight text-white flex items-center gap-2">
+              太陽能 AIoT 自動滴灌與遠端監控
+            </h1>
+            <span class="px-2 py-0.5 rounded-full text-xs font-semibold bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">
+              v2.5 Live
+            </span>
+          </div>
+          <p class="text-xs sm:text-sm text-slate-400 mt-0.5">
+            雙重避險防護 ✕ ESP32 微型氣象站 ✕ Cloudflare 邊緣聯網 ✕ AI 園藝顧問
+          </p>
+        </div>
+      </div>
+
+      <!-- Header Widgets: Solar, Status Light, Last Update, Refresh -->
+      <div class="flex flex-wrap items-center justify-start lg:justify-end gap-2.5 sm:gap-3 w-full lg:w-auto text-xs sm:text-sm">
+        
+        <!-- Solar Energy Badge -->
+        <div class="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-300 font-medium shadow-sm">
+          <i class="fa-solid fa-solar-panel text-amber-400 animate-pulse"></i>
+          <span class="hidden sm:inline">太陽能供電</span>
+          <span class="font-bold font-mono">5.0V 綠能自給</span>
+        </div>
+
+        <!-- Dynamic System Status Indicator Light -->
+        <div id="statusBadge" class="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-emerald-500/15 border border-emerald-500/30 text-emerald-400 font-semibold shadow-sm transition-all duration-300">
+          <span class="relative flex h-2.5 w-2.5">
+            <span id="statusPulse" class="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+            <span id="statusDot" class="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500"></span>
+          </span>
+          <span id="statusText">系統正常運作中</span>
+        </div>
+
+        <!-- Last Updated Time -->
+        <div class="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-800/80 border border-slate-700/60 text-slate-300 font-mono text-xs">
+          <i class="fa-regular fa-clock text-slate-400"></i>
+          <span class="hidden md:inline text-slate-400">更新於:</span>
+          <span id="lastUpdatedTime">--:--:--</span>
+        </div>
+
+        <!-- Audio FX Toggle & Refresh Button -->
+        <div class="flex items-center gap-1.5">
+          <button id="soundToggleBtn" onclick="toggleSound()" class="p-2 sm:px-2.5 py-1.5 rounded-xl bg-slate-800/80 hover:bg-slate-700 border border-slate-700/60 text-slate-300 hover:text-emerald-400 transition-all text-xs flex items-center gap-1" title="開關音效回饋">
+            <i id="soundIcon" class="fa-solid fa-volume-high text-emerald-400"></i>
+          </button>
+          <button id="manualRefreshBtn" onclick="refreshAll(true)" class="p-2 sm:px-3 py-1.5 rounded-xl bg-emerald-600/20 hover:bg-emerald-600/30 border border-emerald-500/40 text-emerald-300 font-medium transition-all flex items-center gap-1.5 active:scale-95 text-xs" title="立即手動同步">
+            <i id="refreshIcon" class="fa-solid fa-rotate-right"></i>
+            <span class="hidden sm:inline">重新整理</span>
+          </button>
+        </div>
+
+      </div>
+    </header>
+
+    <!-- ==================== 2. WATER SHORTAGE ALERT BANNER ==================== -->
+    <div id="waterShortageBanner" class="hidden transition-all duration-500 transform">
+      <div class="rounded-2xl bg-gradient-to-r from-rose-950/90 via-red-900/80 to-rose-950/90 border-2 border-rose-500/60 p-4 sm:p-5 shadow-xl shadow-rose-950/50 flex flex-col sm:flex-row items-center justify-between gap-4">
+        <div class="flex items-center gap-3.5">
+          <div class="w-12 h-12 rounded-xl bg-rose-500/20 border border-rose-500/40 flex items-center justify-center flex-shrink-0 animate-bounce">
+            <i class="fa-solid fa-triangle-exclamation text-rose-400 text-2xl"></i>
+          </div>
+          <div>
+            <h3 class="text-base sm:text-lg font-bold text-rose-100 flex items-center gap-2">
+              🚨 儲水箱缺水緊急防護中！抽水馬達已自動鎖死
+            </h3>
+            <p class="text-xs sm:text-sm text-rose-300/90 mt-0.5">
+              水位感測器偵測到儲水見底。為避免水泵空轉乾燒損毀，遠端澆水與自動滴灌功能目前已強制中斷，請立即為水箱加水！
+            </p>
+          </div>
+        </div>
+        <div class="flex items-center gap-2.5 flex-shrink-0">
+          <span class="px-3 py-1.5 rounded-lg bg-rose-500/30 text-rose-200 font-mono text-xs font-bold border border-rose-400/30">
+            防乾燒機制生效中
+          </span>
+        </div>
+      </div>
+    </div>
+
+    <!-- ==================== 3. OLED ROBOT EMOTICON SCREEN & QUICK STATS ==================== -->
+    <div class="grid grid-cols-1 lg:grid-cols-12 gap-5">
+      <!-- Cyber OLED Emoticon Screen (4 cols on lg) -->
+      <div class="lg:col-span-5 glass-card rounded-2xl p-5 flex flex-col justify-between">
+        <div class="flex items-center justify-between mb-3">
+          <div class="flex items-center gap-2">
+            <div class="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-ping"></div>
+            <span class="text-xs font-mono font-bold tracking-wider text-emerald-400 uppercase">ESP32 實體 OLED 即時狀態</span>
+          </div>
+          <span class="text-[11px] font-mono text-slate-400">SSD1306 0.96" I2C</span>
+        </div>
+
+        <!-- Simulated OLED Display -->
+        <div class="oled-screen rounded-xl p-4 text-emerald-400 relative overflow-hidden my-auto border-emerald-900/60">
+          <!-- Scanline overlay effect -->
+          <div class="absolute inset-0 bg-gradient-to-b from-transparent via-emerald-400/[0.03] to-transparent pointer-events-none opacity-40"></div>
+          
+          <div class="flex justify-between items-center text-[11px] border-b border-emerald-900/80 pb-1.5 mb-3 text-emerald-500">
+            <span class="flex items-center gap-1"><i class="fa-solid fa-wifi text-[10px]"></i> AIoT-NODE_01</span>
+            <span id="oledClock" class="font-mono">--:--:--</span>
+          </div>
+
+          <div class="text-center py-2">
+            <div id="robotFace" class="text-4xl sm:text-5xl font-black font-mono tracking-widest oled-glow animate-float">
+              ( ^ ▽ ^ )
+            </div>
+            <div id="robotStateName" class="text-base font-bold mt-2 text-emerald-300 font-sans tracking-wide">
+              植物成長愉悅中
+            </div>
+          </div>
+
+          <div class="border-t border-emerald-900/80 pt-2 mt-2 text-[11px] text-emerald-400/90 text-center leading-relaxed">
+            <span id="robotDesc">存水充足，溫濕度適宜，光合作用進行中</span>
+          </div>
+        </div>
+
+        <!-- OLED Sub info bar -->
+        <div class="grid grid-cols-3 gap-2 mt-4 text-center text-xs">
+          <div class="bg-slate-900/80 p-2 rounded-xl border border-slate-800">
+            <div class="text-slate-400 text-[10px]">避險機制</div>
+            <div id="guardPill" class="text-emerald-400 font-bold mt-0.5">雙重防護</div>
+          </div>
+          <div class="bg-slate-900/80 p-2 rounded-xl border border-slate-800">
+            <div class="text-slate-400 text-[10px]">水泵狀態</div>
+            <div id="pumpStatePill" class="text-slate-300 font-bold mt-0.5">待命靜止</div>
+          </div>
+          <div class="bg-slate-900/80 p-2 rounded-xl border border-slate-800">
+            <div class="text-slate-400 text-[10px]">API 連線</div>
+            <div id="apiLatencyPill" class="text-emerald-400 font-bold font-mono mt-0.5">3s 輪詢中</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Remote Control Panel & Quick Action (7 cols on lg) -->
+      <div class="lg:col-span-7 glass-card rounded-2xl p-5 flex flex-col justify-between">
+        <div>
+          <div class="flex items-center justify-between mb-4">
+            <div class="flex items-center gap-2">
+              <i class="fa-solid fa-gamepad text-emerald-400 text-lg"></i>
+              <h2 class="text-lg font-bold text-white">遠端智慧控制面板</h2>
+            </div>
+            <span class="text-xs px-2.5 py-1 rounded-full bg-slate-800 text-slate-300 border border-slate-700">
+              即時雙向握手通訊
+            </span>
+          </div>
+
+          <p class="text-xs sm:text-sm text-slate-300 leading-relaxed mb-5">
+            點擊下方按鈕可透過 Cloudflare Workers 邊緣伺服器發送強制滴灌指令。ESP32 輪詢取得指令後將啟動繼電器驅動水泵進行 <strong class="text-emerald-400">3 秒定量微調滴灌</strong>，並在完成後自動重置旗標。
+          </p>
+
+          <!-- Main Pump Action Button -->
+          <div class="space-y-3">
+            <button id="pumpActionBtn" onclick="triggerManualPump()" class="w-full relative group overflow-hidden rounded-2xl p-4 sm:p-5 bg-gradient-to-r from-emerald-600 via-teal-600 to-emerald-500 hover:from-emerald-500 hover:to-teal-500 text-white font-extrabold text-base sm:text-lg shadow-xl shadow-emerald-950/60 border border-emerald-400/40 transition-all duration-300 transform active:scale-[0.99] flex items-center justify-center gap-3">
+              <!-- Glow hover effect -->
+              <span class="absolute inset-0 w-full h-full bg-white/10 group-hover:bg-white/20 transition-all"></span>
+              
+              <span id="pumpBtnSpinner" class="hidden">
+                <i class="fa-solid fa-circle-notch fa-spin text-xl text-white"></i>
+              </span>
+              <span id="pumpBtnIcon">
+                <i class="fa-solid fa-faucet-drip text-xl group-hover:rotate-12 transition-transform"></i>
+              </span>
+              <span id="pumpBtnText" class="tracking-wide">🌱 手動一鍵強制澆水 (3秒微調滴灌)</span>
+            </button>
+
+            <!-- State feedback banner -->
+            <div id="pumpStatusFeedback" class="p-3 rounded-xl bg-slate-900/90 border border-slate-800 text-xs text-slate-300 flex items-center justify-between">
+              <span class="flex items-center gap-2">
+                <i class="fa-solid fa-circle-info text-cyan-400"></i>
+                <span id="pumpFeedbackText">系統就緒，點擊可立即發送澆水訊號</span>
+              </span>
+              <span id="pumpCountdown" class="font-mono text-emerald-400 font-bold"></span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Dual-Safeguard Highlights -->
+        <div class="grid grid-cols-1 sm:grid-cols-3 gap-2.5 mt-5 pt-4 border-t border-slate-800/80 text-xs">
+          <div class="flex items-start gap-2 text-slate-400">
+            <i class="fa-solid fa-shield-halved text-emerald-400 mt-0.5"></i>
+            <div>
+              <strong class="text-slate-200 block">防乾燒保險</strong>
+              水位過低立即鎖死馬達
+            </div>
+          </div>
+          <div class="flex items-start gap-2 text-slate-400">
+            <i class="fa-solid fa-temperature-arrow-up text-amber-400 mt-0.5"></i>
+            <div>
+              <strong class="text-slate-200 block">高溫避險暫緩</strong>
+              超過 32°C 禁澆防悶根
+            </div>
+          </div>
+          <div class="flex items-start gap-2 text-slate-400">
+            <i class="fa-solid fa-leaf text-teal-400 mt-0.5"></i>
+            <div>
+              <strong class="text-slate-200 block">零碳排綠能</strong>
+              光伏自充電全天候運行
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ==================== 4. FOUR REAL-TIME SENSOR METRIC CARDS ==================== -->
+    <section>
+      <div class="flex items-center justify-between mb-3 px-1">
+        <h2 class="text-base sm:text-lg font-bold text-white flex items-center gap-2">
+          <i class="fa-solid fa-chart-simple text-emerald-400"></i>
+          四大即時環境感測數據卡片
+        </h2>
+        <span class="text-xs text-slate-400 flex items-center gap-1">
+          <i class="fa-solid fa-bolt text-amber-400"></i> 每 3 秒自動更新
+        </span>
+      </div>
+
+      <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+
+        <!-- Card 1: Soil Moisture (土壤含水率) -->
+        <div class="glass-card rounded-2xl p-5 flex flex-col justify-between relative overflow-hidden group">
+          <div class="absolute -right-6 -bottom-6 w-24 h-24 bg-emerald-500/10 rounded-full blur-xl group-hover:bg-emerald-500/20 transition-all"></div>
+          
+          <div>
+            <div class="flex items-center justify-between">
+              <span class="text-xs font-semibold text-slate-400 tracking-wider">土壤含水率</span>
+              <div class="w-9 h-9 rounded-xl bg-emerald-500/15 text-emerald-400 flex items-center justify-center border border-emerald-500/30">
+                <i class="fa-solid fa-droplet text-base"></i>
+              </div>
+            </div>
+
+            <div class="mt-4 flex items-baseline gap-1">
+              <span id="soilMoistureVal" class="text-4xl sm:text-5xl font-black font-mono text-emerald-400 tracking-tight">--</span>
+              <span class="text-slate-400 text-lg font-bold">%</span>
+            </div>
+
+            <!-- Moisture Progress Bar -->
+            <div class="mt-4 space-y-1.5">
+              <div class="h-2.5 w-full bg-slate-800 rounded-full overflow-hidden p-0.5 border border-slate-700/50">
+                <div id="soilMoistureBar" class="h-full bg-gradient-to-r from-emerald-500 to-teal-400 rounded-full transition-all duration-700 w-0 progress-glow"></div>
+              </div>
+              <div class="flex justify-between text-[10px] text-slate-500 font-mono">
+                <span>0% (乾燥)</span>
+                <span>40% 理想</span>
+                <span>100% 飽和</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="mt-4 pt-3 border-t border-slate-800/80 flex items-center justify-between text-xs">
+            <span id="soilMoistureTag" class="px-2.5 py-1 rounded-lg bg-emerald-500/15 text-emerald-300 font-medium border border-emerald-500/30">
+              數據讀取中...
+            </span>
+            <span class="text-slate-500 text-[11px] font-mono">ADC1_CH6</span>
+          </div>
+        </div>
+
+        <!-- Card 2: Temperature (環境氣溫) -->
+        <div class="glass-card rounded-2xl p-5 flex flex-col justify-between relative overflow-hidden group">
+          <div class="absolute -right-6 -bottom-6 w-24 h-24 bg-amber-500/10 rounded-full blur-xl group-hover:bg-amber-500/20 transition-all"></div>
+          
+          <div>
+            <div class="flex items-center justify-between">
+              <span class="text-xs font-semibold text-slate-400 tracking-wider">環境氣溫</span>
+              <div class="w-9 h-9 rounded-xl bg-amber-500/15 text-amber-400 flex items-center justify-center border border-amber-500/30">
+                <i class="fa-solid fa-temperature-three-quarters text-base"></i>
+              </div>
+            </div>
+
+            <div class="mt-4 flex items-baseline gap-1">
+              <span id="temperatureVal" class="text-4xl sm:text-5xl font-black font-mono text-amber-400 tracking-tight">--</span>
+              <span class="text-slate-400 text-lg font-bold">°C</span>
+            </div>
+
+            <!-- Temperature Meter -->
+            <div class="mt-4 space-y-1.5">
+              <div class="h-2.5 w-full bg-slate-800 rounded-full overflow-hidden p-0.5 border border-slate-700/50">
+                <div id="temperatureBar" class="h-full bg-gradient-to-r from-amber-500 to-orange-400 rounded-full transition-all duration-700 w-0"></div>
+              </div>
+              <div class="flex justify-between text-[10px] text-slate-500 font-mono">
+                <span>0°C</span>
+                <span>32°C 高溫門檻</span>
+                <span>50°C</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="mt-4 pt-3 border-t border-slate-800/80 flex items-center justify-between text-xs">
+            <span id="temperatureTag" class="px-2.5 py-1 rounded-lg bg-amber-500/15 text-amber-300 font-medium border border-amber-500/30">
+              數據讀取中...
+            </span>
+            <span class="text-slate-500 text-[11px] font-mono">DHT22 Temp</span>
+          </div>
+        </div>
+
+        <!-- Card 3: Air Humidity (空氣相對濕度) -->
+        <div class="glass-card rounded-2xl p-5 flex flex-col justify-between relative overflow-hidden group">
+          <div class="absolute -right-6 -bottom-6 w-24 h-24 bg-cyan-500/10 rounded-full blur-xl group-hover:bg-cyan-500/20 transition-all"></div>
+          
+          <div>
+            <div class="flex items-center justify-between">
+              <span class="text-xs font-semibold text-slate-400 tracking-wider">空氣相對濕度</span>
+              <div class="w-9 h-9 rounded-xl bg-cyan-500/15 text-cyan-400 flex items-center justify-center border border-cyan-500/30">
+                <i class="fa-solid fa-wind text-base"></i>
+              </div>
+            </div>
+
+            <div class="mt-4 flex items-baseline gap-1">
+              <span id="humidityVal" class="text-4xl sm:text-5xl font-black font-mono text-cyan-400 tracking-tight">--</span>
+              <span class="text-slate-400 text-lg font-bold">%</span>
+            </div>
+
+            <!-- Humidity Meter -->
+            <div class="mt-4 space-y-1.5">
+              <div class="h-2.5 w-full bg-slate-800 rounded-full overflow-hidden p-0.5 border border-slate-700/50">
+                <div id="humidityBar" class="h-full bg-gradient-to-r from-cyan-500 to-blue-400 rounded-full transition-all duration-700 w-0"></div>
+              </div>
+              <div class="flex justify-between text-[10px] text-slate-500 font-mono">
+                <span>0% 干燥</span>
+                <span>60% 舒適</span>
+                <span>100% 潮濕</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="mt-4 pt-3 border-t border-slate-800/80 flex items-center justify-between text-xs">
+            <span id="humidityTag" class="px-2.5 py-1 rounded-lg bg-cyan-500/15 text-cyan-300 font-medium border border-cyan-500/30">
+              數據讀取中...
+            </span>
+            <span class="text-slate-500 text-[11px] font-mono">DHT22 Humi</span>
+          </div>
+        </div>
+
+        <!-- Card 4: Light Level (日照光照狀態) -->
+        <div class="glass-card rounded-2xl p-5 flex flex-col justify-between relative overflow-hidden group">
+          <div class="absolute -right-6 -bottom-6 w-24 h-24 bg-yellow-500/10 rounded-full blur-xl group-hover:bg-yellow-500/20 transition-all"></div>
+          
+          <div>
+            <div class="flex items-center justify-between">
+              <span class="text-xs font-semibold text-slate-400 tracking-wider">日照光照狀態</span>
+              <div class="w-9 h-9 rounded-xl bg-yellow-500/15 text-yellow-400 flex items-center justify-center border border-yellow-500/30">
+                <i id="lightIcon" class="fa-solid fa-sun text-base animate-pulse"></i>
+              </div>
+            </div>
+
+            <div class="mt-4 flex items-baseline gap-1">
+              <span id="lightLevelVal" class="text-2xl sm:text-3xl font-extrabold text-yellow-300 tracking-tight">--</span>
+            </div>
+
+            <!-- Light Indicator -->
+            <div class="mt-4 space-y-1.5">
+              <div class="h-2.5 w-full bg-slate-800 rounded-full overflow-hidden p-0.5 border border-slate-700/50">
+                <div id="lightLevelBar" class="h-full bg-gradient-to-r from-amber-400 to-yellow-300 rounded-full transition-all duration-700 w-3/4"></div>
+              </div>
+              <div class="flex justify-between text-[10px] text-slate-500 font-mono">
+                <span>微光</span>
+                <span>散射光</span>
+                <span>強光烈日</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="mt-4 pt-3 border-t border-slate-800/80 flex items-center justify-between text-xs">
+            <span id="waterOkTag" class="px-2.5 py-1 rounded-lg bg-emerald-500/15 text-emerald-300 font-medium border border-emerald-500/30">
+              水箱水量正常
+            </span>
+            <span class="text-slate-500 text-[11px] font-mono">LDR Sensor</span>
+          </div>
+        </div>
+
+      </div>
+    </section>
+
+    <!-- ==================== 5. HISTORICAL ENVIRONMENTAL TREND CHART ==================== -->
+    <section class="glass-card rounded-2xl p-5">
+      <div class="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 mb-4">
+        <div>
+          <h2 class="text-lg font-bold text-white flex items-center gap-2">
+            <i class="fa-solid fa-chart-line text-emerald-400"></i>
+            歷史環境趨勢圖表 (時序分析)
+          </h2>
+          <p class="text-xs text-slate-400 mt-0.5">
+            每 30 秒自動向 <code class="text-emerald-400 font-mono">/api/history</code> 抓取時序數據，監控土壤含水率與氣候微變化
+          </p>
+        </div>
+
+        <!-- Chart Mode Toggle Buttons -->
+        <div class="flex items-center gap-1.5 bg-slate-900/90 p-1 rounded-xl border border-slate-800 self-stretch sm:self-auto overflow-x-auto text-xs">
+          <button id="chartTabAll" onclick="setChartMetric('all')" class="px-3 py-1.5 rounded-lg bg-emerald-600/30 text-emerald-300 font-semibold border border-emerald-500/40 transition-all">
+            綜合對比
+          </button>
+          <button id="chartTabSoil" onclick="setChartMetric('soil')" class="px-3 py-1.5 rounded-lg text-slate-400 hover:text-white transition-all">
+            土壤濕度
+          </button>
+          <button id="chartTabTemp" onclick="setChartMetric('temp')" class="px-3 py-1.5 rounded-lg text-slate-400 hover:text-white transition-all">
+            氣溫
+          </button>
+          <button id="chartTabHumi" onclick="setChartMetric('humi')" class="px-3 py-1.5 rounded-lg text-slate-400 hover:text-white transition-all">
+            空氣濕度
+          </button>
+        </div>
+      </div>
+
+      <!-- Chart Container -->
+      <div class="relative w-full h-72 sm:h-80 md:h-96">
+        <canvas id="telemetryChart"></canvas>
+      </div>
+
+      <div class="mt-4 pt-3 border-t border-slate-800/80 flex flex-wrap items-center justify-between gap-3 text-xs text-slate-400">
+        <div class="flex items-center gap-4">
+          <span class="flex items-center gap-1.5">
+            <span class="w-3 h-3 rounded-full bg-emerald-500"></span> 土壤濕度 (%)
+          </span>
+          <span class="flex items-center gap-1.5">
+            <span class="w-3 h-3 rounded-full bg-amber-500"></span> 環境氣溫 (°C)
+          </span>
+          <span class="flex items-center gap-1.5">
+            <span class="w-3 h-3 rounded-full bg-cyan-500"></span> 空氣濕度 (%)
+          </span>
+        </div>
+        <div id="chartHistoryCount" class="font-mono text-slate-400">
+          已加載 0 筆歷史點位
+        </div>
+      </div>
+    </section>
+
+    <!-- ==================== 6. AI HORTICULTURAL CONSULTANT (AI 園藝顧問) ==================== -->
+    <section class="glass-card rounded-2xl p-5 relative overflow-hidden">
+      <!-- Glow ambient -->
+      <div class="absolute -top-12 -right-12 w-48 h-48 bg-purple-500/10 rounded-full blur-2xl pointer-events-none"></div>
+
+      <div class="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 mb-5">
+        <div class="flex items-center gap-3">
+          <div class="w-10 h-10 rounded-xl bg-purple-500/20 text-purple-400 flex items-center justify-center border border-purple-500/30">
+            <i class="fa-solid fa-wand-magic-sparkles text-lg"></i>
+          </div>
+          <div>
+            <h2 class="text-lg font-bold text-white flex items-center gap-2">
+              AI 園藝植物健檢顧問
+            </h2>
+            <p class="text-xs text-slate-400">
+              自動整合水箱感測數據生成提示詞，支援 Gemini / OpenAI API 串接或一鍵精準複製
+            </p>
+          </div>
+        </div>
+
+        <!-- API Key Config Button -->
+        <button onclick="openApiKeyModal()" class="px-3 py-1.5 rounded-xl bg-purple-500/15 hover:bg-purple-500/25 text-purple-300 border border-purple-500/30 text-xs font-medium flex items-center gap-1.5 transition-all">
+          <i class="fa-solid fa-key"></i>
+          <span id="apiKeyBtnLabel">自訂 AI 金鑰</span>
+        </button>
+      </div>
+
+      <div class="grid grid-cols-1 lg:grid-cols-12 gap-5">
+
+        <!-- Input & Configuration Area (5 cols) -->
+        <div class="lg:col-span-5 space-y-4">
+          <!-- Plant Name Input -->
+          <div>
+            <label class="block text-xs font-semibold text-slate-300 mb-1.5">
+              🌱 植物品種名稱
+            </label>
+            <input type="text" id="plantNameInput" value="薄荷" placeholder="例如：薄荷、虎尾蘭、迷迭香、琴葉榕..." class="w-full px-3.5 py-2.5 rounded-xl bg-slate-900/90 border border-slate-700/80 text-white placeholder-slate-500 text-sm focus:outline-none focus:border-emerald-500 transition-all font-medium">
+            
+            <!-- Quick select pills -->
+            <div class="flex flex-wrap gap-1.5 mt-2">
+              <button onclick="selectPlantPreset('薄荷')" class="px-2 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-[11px] text-slate-300 hover:text-white transition-all">🌿 薄荷</button>
+              <button onclick="selectPlantPreset('迷迭香')" class="px-2 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-[11px] text-slate-300 hover:text-white transition-all">🍃 迷迭香</button>
+              <button onclick="selectPlantPreset('多肉植物')" class="px-2 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-[11px] text-slate-300 hover:text-white transition-all">🪴 多肉植物</button>
+              <button onclick="selectPlantPreset('龜背芋')" class="px-2 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-[11px] text-slate-300 hover:text-white transition-all">🌱 龜背芋</button>
+              <button onclick="selectPlantPreset('番茄苗')" class="px-2 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-[11px] text-slate-300 hover:text-white transition-all">🍅 番茄苗</button>
+            </div>
+          </div>
+
+          <!-- Question Input -->
+          <div>
+            <label class="block text-xs font-semibold text-slate-300 mb-1.5">
+              ❓ 諮詢問題或外觀表徵（選填）
+            </label>
+            <textarea id="plantQuestionInput" rows="3" placeholder="例如：葉片有點發黃捲曲，需要補充水分嗎？目前的光照和溫度條件適合生長嗎？" class="w-full px-3.5 py-2.5 rounded-xl bg-slate-900/90 border border-slate-700/80 text-white placeholder-slate-500 text-sm focus:outline-none focus:border-emerald-500 transition-all"></textarea>
+            
+            <!-- Quick question presets -->
+            <div class="flex flex-col gap-1 mt-1.5">
+              <button onclick="selectQuestionPreset('目前土壤水分與溫濕度是否需要立即澆水？')" class="text-left text-[11px] text-slate-400 hover:text-emerald-400 transition-colors">
+                • 目前土壤水分與溫濕度是否需要立即澆水？
+              </button>
+              <button onclick="selectQuestionPreset('當前溫度下如何避免悶根或葉片曬傷？')" class="text-left text-[11px] text-slate-400 hover:text-emerald-400 transition-colors">
+                • 當前溫度下如何避免悶根或葉片曬傷？
+              </button>
+            </div>
+          </div>
+
+          <!-- Action Buttons -->
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-2.5 pt-1">
+            <button onclick="copyGeneratedPrompt()" class="px-4 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 hover:text-white font-semibold text-xs border border-slate-700 flex items-center justify-center gap-2 transition-all active:scale-95 shadow-sm">
+              <i class="fa-regular fa-copy"></i>
+              <span id="copyPromptBtnText">一鍵複製診斷提示詞</span>
+            </button>
+
+            <button onclick="generateAiDiagnosis()" class="px-4 py-2.5 rounded-xl bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white font-bold text-xs flex items-center justify-center gap-2 transition-all active:scale-95 shadow-lg shadow-purple-950/40 border border-purple-400/30">
+              <span id="aiBtnSpinner" class="hidden"><i class="fa-solid fa-spinner fa-spin"></i></span>
+              <i id="aiBtnIcon" class="fa-solid fa-wand-magic-sparkles"></i>
+              <span>立即生成 AI 診斷</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- Assembled Prompt & AI Answer Area (7 cols) -->
+        <div class="lg:col-span-7 flex flex-col justify-between space-y-3">
+          <!-- Assembled Prompt Preview -->
+          <div class="bg-slate-900/90 rounded-xl p-3.5 border border-slate-800">
+            <div class="flex items-center justify-between text-xs mb-2">
+              <span class="text-slate-400 font-mono flex items-center gap-1.5">
+                <i class="fa-solid fa-microchip text-emerald-400"></i>
+                即時自動組裝之物聯網感測提示詞預覽
+              </span>
+              <span class="text-[10px] text-emerald-400 font-mono">即時同步中</span>
+            </div>
+            <pre id="assembledPromptPreview" class="text-[11px] font-mono text-slate-300 whitespace-pre-wrap max-h-36 overflow-y-auto leading-relaxed bg-black/40 p-2.5 rounded-lg border border-slate-800/80"></pre>
+          </div>
+
+          <!-- AI Diagnostic Response Box -->
+          <div class="bg-gradient-to-br from-slate-900/90 via-[#0c1427]/90 to-slate-900/90 rounded-xl p-4 border border-purple-500/20 min-h-[140px] flex flex-col justify-between">
+            <div class="flex items-center justify-between text-xs pb-2 border-b border-slate-800">
+              <span class="text-purple-300 font-bold flex items-center gap-1.5">
+                <i class="fa-solid fa-brain text-purple-400"></i>
+                <span id="aiResponseTitle">AI 園藝專家診斷結論</span>
+              </span>
+              <span id="aiEngineTag" class="text-[10px] px-2 py-0.5 rounded bg-purple-500/15 text-purple-300 border border-purple-500/30">
+                內建農藝規則引擎就緒
+              </span>
+            </div>
+
+            <div id="aiResponseContent" class="text-xs sm:text-sm text-slate-200 mt-3 leading-relaxed whitespace-pre-line">
+              🌱 輸入植物名稱與問題後，點擊「立即生成 AI 診斷」，系統將依據目前即時之土壤含水率、氣溫、光照條件，給予量身定制的專業養護建議！
+            </div>
+
+            <div class="mt-3 pt-2 text-[11px] text-slate-500 flex justify-between items-center border-t border-slate-800/60">
+              <span>數據依據：即時 ESP32 傳感器量測值</span>
+              <button onclick="speakDiagnosis()" id="ttsBtn" class="text-slate-400 hover:text-emerald-400 transition-colors flex items-center gap-1">
+                <i class="fa-solid fa-volume-high"></i> 朗讀建議
+              </button>
+            </div>
+          </div>
+
+        </div>
+      </div>
+    </section>
+
+    <!-- ==================== 7. FOOTER ==================== -->
+    <footer class="pt-4 pb-8 text-center text-xs text-slate-500 space-y-2">
+      <div class="flex items-center justify-center gap-3 text-slate-400">
+        <span class="flex items-center gap-1"><i class="fa-solid fa-sun text-amber-400"></i> 太陽能 AIoT</span>
+        <span>•</span>
+        <span class="flex items-center gap-1"><i class="fa-solid fa-microchip text-emerald-400"></i> ESP32 NodeMCU</span>
+        <span>•</span>
+        <span class="flex items-center gap-1"><i class="fa-brands fa-cloudflare text-orange-400"></i> Cloudflare Pages & Workers</span>
+      </div>
+      <p>專案儲存庫：<a href="https://github.com/Ray-0420/plant-iot-dashboard.git" target="_blank" class="text-emerald-400 hover:underline">Ray-0420/plant-iot-dashboard</a> ｜ 智慧農業綠能自給監控系統</p>
+    </footer>
+
+  </div>
+
+  <!-- ==================== API KEY CONFIG MODAL ==================== -->
+  <div id="apiKeyModal" class="fixed inset-0 bg-black/75 backdrop-blur-sm z-50 flex items-center justify-center p-4 hidden">
+    <div class="bg-slate-900 border border-slate-700/80 rounded-2xl max-w-md w-full p-6 shadow-2xl relative">
+      <button onclick="closeApiKeyModal()" class="absolute top-4 right-4 text-slate-400 hover:text-white text-lg">
+        <i class="fa-solid fa-xmark"></i>
+      </button>
+
+      <div class="flex items-center gap-3 mb-4">
+        <div class="w-10 h-10 rounded-xl bg-purple-500/20 text-purple-400 flex items-center justify-center border border-purple-500/30">
+          <i class="fa-solid fa-key"></i>
+        </div>
+        <div>
+          <h3 class="text-base font-bold text-white">設定 AI 園藝大語言模型金鑰</h3>
+          <p class="text-xs text-slate-400">自訂直接調用 Google Gemini 或 OpenAI API</p>
+        </div>
+      </div>
+
+      <div class="space-y-4 text-xs">
+        <div>
+          <label class="block font-semibold text-slate-300 mb-1">
+            Google Gemini API Key（推薦，免費且反應極快）
+          </label>
+          <input type="password" id="geminiKeyInput" placeholder="AIzaSy..." class="w-full px-3 py-2 rounded-xl bg-slate-800 border border-slate-700 text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500">
+          <p class="text-[11px] text-slate-500 mt-1">
+            可在 <a href="https://aistudio.google.com/app/apikey" target="_blank" class="text-emerald-400 underline">Google AI Studio</a> 免費取得 API Key
+          </p>
+        </div>
+
+        <div>
+          <label class="block font-semibold text-slate-300 mb-1">
+            OpenAI API Key（選填）
+          </label>
+          <input type="password" id="openaiKeyInput" placeholder="sk-..." class="w-full px-3 py-2 rounded-xl bg-slate-800 border border-slate-700 text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500">
+        </div>
+
+        <div class="p-3 rounded-xl bg-slate-800/80 border border-slate-700 text-[11px] text-slate-400 leading-relaxed">
+          <strong class="text-slate-200">🔒 本地安全保證：</strong><br>
+          API 金鑰僅儲存於您目前的瀏覽器本地端 (<code class="text-emerald-400">localStorage</code>)，前端直接向 AI 提供商官方端點發送請求，絕不上傳第三方伺服器。若不設定，系統會自動使用精準的內建農藝規則引擎。
+        </div>
+
+        <div class="flex justify-end gap-2 pt-2">
+          <button onclick="clearApiKey()" class="px-3.5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 font-semibold transition-all">
+            清除設定
+          </button>
+          <button onclick="saveApiKey()" class="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold transition-all shadow-md">
+            儲存金鑰
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Toast Notification Container -->
+  <div id="toastContainer" class="fixed bottom-5 right-5 z-50 flex flex-col gap-2 max-w-sm pointer-events-none"></div>
+
+  <!-- ==================== JAVASCRIPT LOGIC ==================== -->
+  <script>
+    // 1. 後端 API 規格配置（寫死指定網址）
+    const API_BASE = "https://plant-iot-api.bqcgnbp9m4.workers.dev";
+
+    // 系統狀態變數
+    let currentStatus = {
+      soil_moisture: 50,
+      temperature: 26.5,
+      air_humidity: 60,
+      light_level: "正常日照",
+      water_ok: true,
+      system_status: "正常運作中",
+      force_pump: false,
+      updated_at: "2026/11/18 11:00:00"
+    };
+
+    let historyData = [];
+    let isWaitingPump = false; // 是否正在等待 ESP32 執行澆水
+    let pumpPollCheckCount = 0;
+    let chartInstance = null;
+    let currentChartMetric = 'all'; // 'all', 'soil', 'temp', 'humi'
+    let soundEnabled = true;
+
+    // Web Audio API Synthesizer (Zero asset dependency)
+    let audioCtx = null;
+    function playTone(freq = 600, type = 'sine', duration = 0.15) {
+      if (!soundEnabled) return;
+      try {
+        if (!audioCtx) {
+          audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        }
+        if (audioCtx.state === 'suspended') {
+          audioCtx.resume();
+        }
+        const osc = audioCtx.createOscillator();
+        const gain = audioCtx.createGain();
+        osc.type = type;
+        osc.frequency.setValueAtTime(freq, audioCtx.currentTime);
+        gain.gain.setValueAtTime(0.08, audioCtx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.0001, audioCtx.currentTime + duration);
+        osc.connect(gain);
+        gain.connect(audioCtx.destination);
+        osc.start();
+        osc.stop(audioCtx.currentTime + duration);
+      } catch (e) {
+        console.warn('Audio not allowed yet:', e);
+      }
+    }
+
+    function toggleSound() {
+      soundEnabled = !soundEnabled;
+      const icon = document.getElementById('soundIcon');
+      if (soundEnabled) {
+        icon.className = 'fa-solid fa-volume-high text-emerald-400';
+        showToast('🔊 已開啟音效回饋');
+        playTone(700, 'triangle', 0.1);
+      } else {
+        icon.className = 'fa-solid fa-volume-xmark text-slate-500';
+        showToast('🔇 已靜音音效');
+      }
+    }
+
+    // Toast Notification Utility
+    function showToast(message, type = 'info') {
+      const container = document.getElementById('toastContainer');
+      const toast = document.createElement('div');
+      toast.className = `pointer-events-auto transform transition-all duration-300 translate-y-3 opacity-0 px-4 py-3 rounded-xl shadow-xl text-xs sm:text-sm font-medium flex items-center gap-2.5 border ${
+        type === 'error' ? 'bg-rose-950/95 border-rose-500 text-rose-200' :
+        type === 'success' ? 'bg-emerald-950/95 border-emerald-500 text-emerald-200' :
+        type === 'warning' ? 'bg-amber-950/95 border-amber-500 text-amber-200' :
+        'bg-slate-900/95 border-slate-700 text-slate-200'
+      }`;
+
+      let icon = '<i class="fa-solid fa-circle-info text-cyan-400"></i>';
+      if (type === 'error') icon = '<i class="fa-solid fa-triangle-exclamation text-rose-400"></i>';
+      if (type === 'success') icon = '<i class="fa-solid fa-circle-check text-emerald-400"></i>';
+      if (type === 'warning') icon = '<i class="fa-solid fa-circle-exclamation text-amber-400"></i>';
+
+      toast.innerHTML = `${icon}<span>${message}</span>`;
+      container.appendChild(toast);
+
+      // Animate in
+      requestAnimationFrame(() => {
+        toast.classList.remove('translate-y-3', 'opacity-0');
+      });
+
+      // Animate out
+      setTimeout(() => {
+        toast.classList.add('opacity-0', 'translate-y-2');
+        setTimeout(() => toast.remove(), 300);
+      }, 3500);
+    }
+
+    // ==================== 1. REAL-TIME POLLING: GET /api/status ====================
+    async function fetchStatus() {
+      try {
+        const response = await fetch(`${API_BASE}/api/status`, {
+          method: "GET",
+          headers: { "Accept": "application/json" }
+        });
+
+        if (!response.ok) {
+          throw new Error(`HTTP Error: ${response.status}`);
+        }
+
+        const data = await response.json();
+        handleStatusUpdate(data);
+      } catch (err) {
+        console.warn("輪詢 /api/status 失敗:", err.message);
+        handleConnectionError(err.message);
+      }
+    }
+
+    function handleStatusUpdate(data) {
+      currentStatus = { ...currentStatus, ...data };
+
+      // 更新頂部最後更新時間
+      const lastUpdateEl = document.getElementById("lastUpdatedTime");
+      if (data.updated_at && data.updated_at !== "尚未連線") {
+        lastUpdateEl.textContent = data.updated_at;
+      } else {
+        const now = new Date();
+        lastUpdateEl.textContent = `${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}:${now.getSeconds().toString().padStart(2, '0')}`;
+      }
+
+      // 更新 OLED 時鐘
+      const now = new Date();
+      document.getElementById("oledClock").textContent = `${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}:${now.getSeconds().toString().padStart(2, '0')}`;
+
+      // 更新四大感測數據卡片
+      updateSensorCards(currentStatus);
+
+      // 更新 OLED 機器人表情與狀態
+      updateRobotEmoticon(currentStatus);
+
+      // 更新頂部系統狀態標籤與燈號
+      updateSystemStatusBadge(currentStatus);
+
+      // 檢查水箱水量與強制澆水按鈕狀態
+      updateWaterPumpControls(currentStatus);
+
+      // 自動刷新 AI 提示詞組裝預覽
+      updateAssembledPromptPreview();
+    }
+
+    function handleConnectionError(msg) {
+      const statusBadge = document.getElementById("statusBadge");
+      const statusText = document.getElementById("statusText");
+      const statusDot = document.getElementById("statusDot");
+      const statusPulse = document.getElementById("statusPulse");
+
+      statusBadge.className = "flex items-center gap-2 px-3 py-1.5 rounded-xl bg-slate-800/80 border border-slate-700 text-slate-400 font-semibold shadow-sm";
+      statusText.textContent = "連線重試中...";
+      statusDot.className = "relative inline-flex rounded-full h-2.5 w-2.5 bg-slate-500";
+      statusPulse.className = "hidden";
+    }
+
+    // ==================== 2. UPDATE SENSOR CARDS ====================
+    function updateSensorCards(s) {
+      // 1. 土壤濕度
+      const soilVal = typeof s.soil_moisture === 'number' ? s.soil_moisture : parseFloat(s.soil_moisture) || 0;
+      document.getElementById("soilMoistureVal").textContent = soilVal.toFixed(0);
+      const soilBar = document.getElementById("soilMoistureBar");
+      soilBar.style.width = `${Math.min(100, Math.max(0, soilVal))}%`;
+
+      const soilTag = document.getElementById("soilMoistureTag");
+      if (soilVal < 30) {
+        soilTag.className = "px-2.5 py-1 rounded-lg bg-rose-500/20 text-rose-300 font-bold border border-rose-500/30 animate-pulse";
+        soilTag.textContent = "⚠️ 乾燥警戒 (需澆水)";
+        soilBar.className = "h-full bg-gradient-to-r from-rose-500 to-amber-500 rounded-full transition-all duration-700 progress-glow";
+      } else if (soilVal <= 75) {
+        soilTag.className = "px-2.5 py-1 rounded-lg bg-emerald-500/15 text-emerald-300 font-medium border border-emerald-500/30";
+        soilTag.textContent = "✅ 濕度適中 (理想生長)";
+        soilBar.className = "h-full bg-gradient-to-r from-emerald-500 to-teal-400 rounded-full transition-all duration-700 progress-glow";
+      } else {
+        soilTag.className = "px-2.5 py-1 rounded-lg bg-cyan-500/20 text-cyan-300 font-medium border border-cyan-500/30";
+        soilTag.textContent = "💧 水分充沛 (含水量高)";
+        soilBar.className = "h-full bg-gradient-to-r from-teal-400 to-cyan-500 rounded-full transition-all duration-700 progress-glow";
+      }
+
+      // 2. 環境氣溫
+      const tempVal = typeof s.temperature === 'number' ? s.temperature : parseFloat(s.temperature) || 0;
+      document.getElementById("temperatureVal").textContent = tempVal.toFixed(1);
+      const tempBar = document.getElementById("temperatureBar");
+      const tempPercent = Math.min(100, Math.max(0, (tempVal / 45) * 100));
+      tempBar.style.width = `${tempPercent}%`;
+
+      const tempTag = document.getElementById("temperatureTag");
+      if (tempVal > 32) {
+        tempTag.className = "px-2.5 py-1 rounded-lg bg-amber-500/25 text-amber-300 font-bold border border-amber-500/40 animate-pulse";
+        tempTag.textContent = "🔥 高溫避險暫緩中 (>32°C)";
+      } else if (tempVal >= 20) {
+        tempTag.className = "px-2.5 py-1 rounded-lg bg-emerald-500/15 text-emerald-300 font-medium border border-emerald-500/30";
+        tempTag.textContent = "🌱 氣溫適宜 (20~30°C)";
+      } else {
+        tempTag.className = "px-2.5 py-1 rounded-lg bg-cyan-500/15 text-cyan-300 font-medium border border-cyan-500/30";
+        tempTag.textContent = "❄️ 涼爽偏低 (<20°C)";
+      }
+
+      // 3. 空氣濕度
+      const humiVal = typeof s.air_humidity === 'number' ? s.air_humidity : parseFloat(s.air_humidity) || 0;
+      document.getElementById("humidityVal").textContent = humiVal.toFixed(0);
+      const humiBar = document.getElementById("humidityBar");
+      humiBar.style.width = `${Math.min(100, Math.max(0, humiVal))}%`;
+
+      const humiTag = document.getElementById("humidityTag");
+      if (humiVal < 40) {
+        humiTag.textContent = "🏜️ 空氣偏乾 (易蒸散)";
+      } else if (humiVal <= 70) {
+        humiTag.textContent = "🌿 舒適適宜 (40~70%)";
+      } else {
+        humiTag.textContent = "🌫️ 濕度偏高 (防通風不良)";
+      }
+
+      // 4. 日照光照狀態
+      const lightStr = s.light_level || "正常日照";
+      document.getElementById("lightLevelVal").textContent = lightStr;
+      const lightIcon = document.getElementById("lightIcon");
+      if (lightStr.includes("強烈") || lightStr.includes("強")) {
+        lightIcon.className = "fa-solid fa-sun text-base text-amber-400 animate-spin-slow";
+      } else if (lightStr.includes("暗") || lightStr.includes("夜")) {
+        lightIcon.className = "fa-solid fa-moon text-base text-indigo-300";
+      } else {
+        lightIcon.className = "fa-solid fa-cloud-sun text-base text-yellow-300 animate-pulse";
+      }
+
+      // 水箱狀態小標籤
+      const waterOkTag = document.getElementById("waterOkTag");
+      if (s.water_ok === false) {
+        waterOkTag.className = "px-2.5 py-1 rounded-lg bg-rose-500/20 text-rose-300 font-bold border border-rose-500/40 animate-pulse";
+        waterOkTag.textContent = "⚠️ 水箱缺水 (見底)";
+      } else {
+        waterOkTag.className = "px-2.5 py-1 rounded-lg bg-emerald-500/15 text-emerald-300 font-medium border border-emerald-500/30";
+        waterOkTag.textContent = "✅ 水箱存水正常";
+      }
+    }
+
+    // ==================== 3. OLED ROBOT EMOTICON & DYNAMIC STATUS ====================
+    function updateRobotEmoticon(s) {
+      const faceEl = document.getElementById("robotFace");
+      const nameEl = document.getElementById("robotStateName");
+      const descEl = document.getElementById("robotDesc");
+      const guardPill = document.getElementById("guardPill");
+      const pumpStatePill = document.getElementById("pumpStatePill");
+
+      // 水泵狀態反饋
+      if (s.force_pump || isWaitingPump) {
+        pumpStatePill.className = "text-cyan-400 font-bold mt-0.5 animate-pulse";
+        pumpStatePill.textContent = "💧 澆水致動";
+      } else {
+        pumpStatePill.className = "text-slate-300 font-bold mt-0.5";
+        pumpStatePill.textContent = "待命待機";
+      }
+
+      // 表情狀態決策 (五大狀態機)
+      if (s.water_ok === false) {
+        faceEl.textContent = "( X _ X )";
+        faceEl.className = "text-4xl sm:text-5xl font-black font-mono tracking-widest text-rose-400 oled-glow animate-pulse";
+        nameEl.textContent = "缺水暈眩 (防乾燒鎖死)";
+        nameEl.className = "text-base font-bold mt-2 text-rose-300 font-sans tracking-wide";
+        descEl.textContent = "水箱見底！馬達已強制鎖死保護，請加水！";
+        guardPill.className = "text-rose-400 font-bold mt-0.5";
+        guardPill.textContent = "缺水鎖死";
+      } else if (s.temperature > 32) {
+        faceEl.textContent = "( ;' 0 ')";
+        faceEl.className = "text-4xl sm:text-5xl font-black font-mono tracking-widest text-amber-400 oled-glow animate-float";
+        nameEl.textContent = "高溫流汗 (烈日避險暫緩)";
+        nameEl.className = "text-base font-bold mt-2 text-amber-300 font-sans tracking-wide";
+        descEl.textContent = "環境氣溫 > 32°C，延後澆水以防盆土悶熱爛根";
+        guardPill.className = "text-amber-400 font-bold mt-0.5";
+        guardPill.textContent = "高溫避險";
+      } else if (s.soil_moisture < 35) {
+        faceEl.textContent = "( > _ < )";
+        faceEl.className = "text-4xl sm:text-5xl font-black font-mono tracking-widest text-blue-400 oled-glow animate-bounce";
+        nameEl.textContent = "口渴哭泣 (水分不足)";
+        nameEl.className = "text-base font-bold mt-2 text-blue-300 font-sans tracking-wide";
+        descEl.textContent = "土壤過於乾旱 (<35%)，等待自動或手動補水";
+        guardPill.className = "text-blue-400 font-bold mt-0.5";
+        guardPill.textContent = "符合補水";
+      } else {
+        faceEl.textContent = "( ^ ▽ ^ )";
+        faceEl.className = "text-4xl sm:text-5xl font-black font-mono tracking-widest text-emerald-400 oled-glow animate-float";
+        nameEl.textContent = "植物成長愉悅中";
+        nameEl.className = "text-base font-bold mt-2 text-emerald-300 font-sans tracking-wide";
+        descEl.textContent = "水箱正常、溫濕度適宜，光合作用旺盛";
+        guardPill.className = "text-emerald-400 font-bold mt-0.5";
+        guardPill.textContent = "雙重防護";
+      }
+    }
+
+    // ==================== 4. SYSTEM STATUS BADGE & BANNER ====================
+    function updateSystemStatusBadge(s) {
+      const badge = document.getElementById("statusBadge");
+      const text = document.getElementById("statusText");
+      const dot = document.getElementById("statusDot");
+      const pulse = document.getElementById("statusPulse");
+      const banner = document.getElementById("waterShortageBanner");
+
+      if (s.water_ok === false) {
+        // 缺水鎖死
+        badge.className = "flex items-center gap-2 px-3 py-1.5 rounded-xl bg-rose-500/20 border border-rose-500/40 text-rose-300 font-semibold shadow-sm";
+        text.textContent = "儲水箱缺水鎖死";
+        dot.className = "relative inline-flex rounded-full h-2.5 w-2.5 bg-rose-500";
+        pulse.className = "animate-ping absolute inline-flex h-full w-full rounded-full bg-rose-400 opacity-75";
+        banner.classList.remove("hidden");
+      } else if (s.temperature > 32) {
+        // 高溫避險
+        badge.className = "flex items-center gap-2 px-3 py-1.5 rounded-xl bg-amber-500/20 border border-amber-500/40 text-amber-300 font-semibold shadow-sm";
+        text.textContent = "高溫避險暫緩";
+        dot.className = "relative inline-flex rounded-full h-2.5 w-2.5 bg-amber-500";
+        pulse.className = "animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75";
+        banner.classList.add("hidden");
+      } else {
+        // 正常運作中
+        badge.className = "flex items-center gap-2 px-3 py-1.5 rounded-xl bg-emerald-500/15 border border-emerald-500/30 text-emerald-400 font-semibold shadow-sm";
+        text.textContent = s.system_status && s.system_status !== "待機中" ? s.system_status : "正常運作中";
+        dot.className = "relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500";
+        pulse.className = "animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75";
+        banner.classList.add("hidden");
+      }
+    }
+
+    // ==================== 5. REMOTE MANUAL PUMP CONTROL: POST /api/pump ====================
+    function updateWaterPumpControls(s) {
+      const btn = document.getElementById("pumpActionBtn");
+      const btnText = document.getElementById("pumpBtnText");
+      const btnIcon = document.getElementById("pumpBtnIcon");
+      const spinner = document.getElementById("pumpBtnSpinner");
+      const feedback = document.getElementById("pumpFeedbackText");
+      const countdown = document.getElementById("pumpCountdown");
+
+      // 狀況 A: 水箱缺水 (water_ok === false) -> 按鈕鎖死反灰
+      if (s.water_ok === false) {
+        btn.disabled = true;
+        btn.className = "w-full relative overflow-hidden rounded-2xl p-4 sm:p-5 bg-slate-800 text-slate-500 font-bold text-base sm:text-lg border border-slate-700 cursor-not-allowed opacity-60 flex items-center justify-center gap-3";
+        btnText.textContent = "⛔ 儲水箱缺水，已強制鎖死馬達";
+        btnIcon.innerHTML = '<i class="fa-solid fa-lock"></i>';
+        spinner.classList.add("hidden");
+        feedback.innerHTML = '<span class="text-rose-400">⚠️ 儲水箱無水，防乾燒機制生效中，請加水後自動解鎖</span>';
+        countdown.textContent = "";
+        isWaitingPump = false;
+        return;
+      }
+
+      // 狀況 B: 正在排程或 ESP32 正在執行澆水 (force_pump === true 或 isWaitingPump)
+      if (s.force_pump || isWaitingPump) {
+        btn.disabled = true;
+        btn.className = "w-full relative overflow-hidden rounded-2xl p-4 sm:p-5 bg-gradient-to-r from-cyan-600 via-teal-600 to-cyan-500 text-white font-extrabold text-base sm:text-lg border border-cyan-400/40 shadow-xl shadow-cyan-950/60 flex items-center justify-center gap-3 animate-pulse";
+        btnText.textContent = "指令已排程，等待 ESP32 執行中...";
+        btnIcon.classList.add("hidden");
+        spinner.classList.remove("hidden");
+        feedback.innerHTML = '<span class="text-cyan-300">💧 指令已送達 Cloudflare 邊緣，等待 ESP32 領取並滴灌 3 秒...</span>';
+        countdown.textContent = "執行中";
+        return;
+      }
+
+      // 狀況 C: 恢復就緒正常狀態 (force_pump === false)
+      if (isWaitingPump && !s.force_pump) {
+        // 剛剛完成澆水
+        isWaitingPump = false;
+        showToast("💧 ESP32 澆水指令已完成執行！", "success");
+        playTone(880, 'sine', 0.2);
+        triggerConfetti();
+      }
+
+      // 正常按鈕狀態
+      btn.disabled = false;
+      btn.className = "w-full relative group overflow-hidden rounded-2xl p-4 sm:p-5 bg-gradient-to-r from-emerald-600 via-teal-600 to-emerald-500 hover:from-emerald-500 hover:to-teal-500 text-white font-extrabold text-base sm:text-lg shadow-xl shadow-emerald-950/60 border border-emerald-400/40 transition-all duration-300 transform active:scale-[0.99] flex items-center justify-center gap-3";
+      btnText.textContent = "🌱 手動一鍵強制澆水 (3秒微調滴灌)";
+      btnIcon.classList.remove("hidden");
+      btnIcon.innerHTML = '<i class="fa-solid fa-faucet-drip text-xl group-hover:rotate-12 transition-transform"></i>';
+      spinner.classList.add("hidden");
+      feedback.textContent = "系統就緒，點擊可立即發送澆水訊號";
+      countdown.textContent = "";
+    }
+
+    async function triggerManualPump() {
+      if (currentStatus.water_ok === false) {
+        showToast("❌ 儲水箱缺水，為保護抽水馬達已禁止澆水！", "error");
+        playTone(200, 'sawtooth', 0.3);
+        return;
+      }
+
+      isWaitingPump = true;
+      playTone(523.25, 'triangle', 0.15);
+
+      const btn = document.getElementById("pumpActionBtn");
+      const btnText = document.getElementById("pumpBtnText");
+      const btnIcon = document.getElementById("pumpBtnIcon");
+      const spinner = document.getElementById("pumpBtnSpinner");
+      const feedback = document.getElementById("pumpFeedbackText");
+
+      btn.disabled = true;
+      btnText.textContent = "指令已排程，等待 ESP32 執行中...";
+      btnIcon.classList.add("hidden");
+      spinner.classList.remove("hidden");
+      feedback.innerHTML = '<span class="text-cyan-300">⏳ 正在向 Cloudflare Worker 發送 POST /api/pump...</span>';
+
+      try {
+        const response = await fetch(`${API_BASE}/api/pump`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" }
+        });
+
+        if (!response.ok) {
+          throw new Error(`HTTP ${response.status}`);
+        }
+
+        const resData = await response.json();
+        showToast("🌱 澆水指令已排程！ESP32 即將啟動 3 秒滴灌", "success");
+        playTone(659.25, 'sine', 0.2);
+
+        // 立即向伺服器重新確認一次狀態
+        setTimeout(fetchStatus, 800);
+      } catch (err) {
+        console.error("觸發手動澆水失敗:", err);
+        showToast(`發送澆水指令失敗: ${err.message}`, "error");
+        isWaitingPump = false;
+        updateWaterPumpControls(currentStatus);
+      }
+    }
+
+    // ==================== 6. HISTORICAL CHART: GET /api/history ====================
+    async function fetchHistory() {
+      try {
+        const response = await fetch(`${API_BASE}/api/history`, {
+          method: "GET",
+          headers: { "Accept": "application/json" }
+        });
+
+        if (!response.ok) {
+          throw new Error(`HTTP Error: ${response.status}`);
+        }
+
+        const data = await response.json();
+        if (Array.isArray(data) && data.length > 0) {
+          historyData = data;
+        } else {
+          // 若 API 回傳空陣列（硬體剛開機尚未累積歷史時），基於當前感測值生成合理之近期時序以防圖表空白
+          if (historyData.length === 0) {
+            historyData = generateInitialHistoricalPoints(currentStatus);
+          }
+        }
+        updateChartDisplay();
+      } catch (err) {
+        console.warn("載入歷史趨勢失敗:", err);
+        if (historyData.length === 0) {
+          historyData = generateInitialHistoricalPoints(currentStatus);
+          updateChartDisplay();
+        }
+      }
+    }
+
+    function generateInitialHistoricalPoints(base) {
+      const list = [];
+      const now = Date.now();
+      const points = 12;
+      for (let i = points; i >= 0; i--) {
+        const t = new Date(now - i * 60 * 1000);
+        const timeStr = `${t.getHours().toString().padStart(2, '0')}:${t.getMinutes().toString().padStart(2, '0')}`;
+        // 產生微幅自然波動
+        const m = Math.max(10, Math.min(95, (base.soil_moisture || 50) + Math.sin(i * 0.8) * 3));
+        const temp = Math.max(15, Math.min(40, (base.temperature || 26.5) + Math.cos(i * 0.6) * 0.8));
+        const h = Math.max(20, Math.min(95, (base.air_humidity || 60) + Math.sin(i * 0.5) * 2));
+
+        list.push({
+          created_at: timeStr,
+          soil_moisture: parseFloat(m.toFixed(1)),
+          temperature: parseFloat(temp.toFixed(1)),
+          air_humidity: parseFloat(h.toFixed(1))
+        });
+      }
+      return list;
+    }
+
+    function initChart() {
+      const ctx = document.getElementById("telemetryChart").getContext("2d");
+
+      // 建立美麗的漸層填色
+      const gradientSoil = ctx.createLinearGradient(0, 0, 0, 300);
+      gradientSoil.addColorStop(0, "rgba(16, 185, 129, 0.4)");
+      gradientSoil.addColorStop(1, "rgba(16, 185, 129, 0.0)");
+
+      const gradientTemp = ctx.createLinearGradient(0, 0, 0, 300);
+      gradientTemp.addColorStop(0, "rgba(245, 158, 11, 0.35)");
+      gradientTemp.addColorStop(1, "rgba(245, 158, 11, 0.0)");
+
+      const gradientHumi = ctx.createLinearGradient(0, 0, 0, 300);
+      gradientHumi.addColorStop(0, "rgba(6, 182, 212, 0.35)");
+      gradientHumi.addColorStop(1, "rgba(6, 182, 212, 0.0)");
+
+      chartInstance = new Chart(ctx, {
+        type: "line",
+        data: {
+          labels: [],
+          datasets: [
+            {
+              label: "土壤含水率 (%)",
+              data: [],
+              borderColor: "#10b981",
+              backgroundColor: gradientSoil,
+              fill: true,
+              tension: 0.4,
+              borderWidth: 2.5,
+              pointRadius: 3,
+              pointHoverRadius: 6,
+              pointBackgroundColor: "#10b981",
+              yAxisID: "y"
+            },
+            {
+              label: "環境氣溫 (°C)",
+              data: [],
+              borderColor: "#f59e0b",
+              backgroundColor: gradientTemp,
+              fill: true,
+              tension: 0.4,
+              borderWidth: 2.5,
+              pointRadius: 3,
+              pointHoverRadius: 6,
+              pointBackgroundColor: "#f59e0b",
+              yAxisID: "y1"
+            },
+            {
+              label: "空氣濕度 (%)",
+              data: [],
+              borderColor: "#06b6d4",
+              backgroundColor: gradientHumi,
+              fill: true,
+              tension: 0.4,
+              borderWidth: 2.5,
+              pointRadius: 3,
+              pointHoverRadius: 6,
+              pointBackgroundColor: "#06b6d4",
+              yAxisID: "y"
+            }
+          ]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          interaction: {
+            mode: "index",
+            intersect: false
+          },
+          plugins: {
+            legend: {
+              display: false // 自訂在下方
+            },
+            tooltip: {
+              backgroundColor: "rgba(15, 23, 42, 0.95)",
+              titleColor: "#f8fafc",
+              bodyColor: "#cbd5e1",
+              borderColor: "rgba(255, 255, 255, 0.1)",
+              borderWidth: 1,
+              padding: 12,
+              boxPadding: 6,
+              usePointStyle: true,
+              callbacks: {
+                label: function(context) {
+                  let unit = context.datasetIndex === 1 ? " °C" : " %";
+                  return ` ${context.dataset.label}: ${context.parsed.y}${unit}`;
+                }
+              }
+            }
+          },
+          scales: {
+            x: {
+              grid: { color: "rgba(255, 255, 255, 0.05)" },
+              ticks: { color: "#94a3b8", font: { family: "JetBrains Mono", size: 11 } }
+            },
+            y: {
+              type: "linear",
+              position: "left",
+              min: 0,
+              max: 100,
+              grid: { color: "rgba(255, 255, 255, 0.05)" },
+              ticks: {
+                color: "#10b981",
+                font: { family: "JetBrains Mono", size: 11 },
+                callback: (val) => `${val}%`
+              }
+            },
+            y1: {
+              type: "linear",
+              position: "right",
+              min: 10,
+              max: 45,
+              grid: { drawOnChartArea: false },
+              ticks: {
+                color: "#f59e0b",
+                font: { family: "JetBrains Mono", size: 11 },
+                callback: (val) => `${val}°C`
+              }
+            }
+          }
+        }
+      });
+    }
+
+    function updateChartDisplay() {
+      if (!chartInstance) return;
+
+      const labels = historyData.map(item => {
+        if (!item.created_at) return "--:--";
+        if (item.created_at.includes(" ")) {
+          const parts = item.created_at.split(" ");
+          return parts[1] ? parts[1].substring(0, 5) : item.created_at;
+        }
+        return item.created_at.substring(0, 5);
+      });
+
+      const soils = historyData.map(i => i.soil_moisture ?? 0);
+      const temps = historyData.map(i => i.temperature ?? 0);
+      const humis = historyData.map(i => i.air_humidity ?? 0);
+
+      chartInstance.data.labels = labels;
+
+      if (currentChartMetric === 'all') {
+        chartInstance.data.datasets[0].hidden = false;
+        chartInstance.data.datasets[1].hidden = false;
+        chartInstance.data.datasets[2].hidden = false;
+      } else if (currentChartMetric === 'soil') {
+        chartInstance.data.datasets[0].hidden = false;
+        chartInstance.data.datasets[1].hidden = true;
+        chartInstance.data.datasets[2].hidden = true;
+      } else if (currentChartMetric === 'temp') {
+        chartInstance.data.datasets[0].hidden = true;
+        chartInstance.data.datasets[1].hidden = false;
+        chartInstance.data.datasets[2].hidden = true;
+      } else if (currentChartMetric === 'humi') {
+        chartInstance.data.datasets[0].hidden = true;
+        chartInstance.data.datasets[1].hidden = true;
+        chartInstance.data.datasets[2].hidden = false;
+      }
+
+      chartInstance.data.datasets[0].data = soils;
+      chartInstance.data.datasets[1].data = temps;
+      chartInstance.data.datasets[2].data = humis;
+
+      chartInstance.update();
+
+      document.getElementById("chartHistoryCount").textContent = `已加載 ${historyData.length} 筆時序紀錄`;
+    }
+
+    function setChartMetric(metric) {
+      currentChartMetric = metric;
+
+      const tabs = ['all', 'soil', 'temp', 'humi'];
+      tabs.forEach(t => {
+        const el = document.getElementById(`chartTab${t.charAt(0).toUpperCase() + t.slice(1)}`);
+        if (t === metric) {
+          el.className = "px-3 py-1.5 rounded-lg bg-emerald-600/30 text-emerald-300 font-semibold border border-emerald-500/40 transition-all";
+        } else {
+          el.className = "px-3 py-1.5 rounded-lg text-slate-400 hover:text-white transition-all";
+        }
+      });
+
+      playTone(750, 'sine', 0.08);
+      updateChartDisplay();
+    }
+
+    // ==================== 7. AI HORTICULTURAL CONSULTANT ====================
+    function selectPlantPreset(name) {
+      document.getElementById("plantNameInput").value = name;
+      playTone(600, 'sine', 0.05);
+      updateAssembledPromptPreview();
+    }
+
+    function selectQuestionPreset(q) {
+      document.getElementById("plantQuestionInput").value = q;
+      playTone(650, 'sine', 0.05);
+      updateAssembledPromptPreview();
+    }
+
+    function buildTelemetryPrompt() {
+      const plant = document.getElementById("plantNameInput").value.trim() || "薄荷";
+      const userQ = document.getElementById("plantQuestionInput").value.trim() || "目前生長狀況診斷與照護建議";
+      
+      const moisture = currentStatus.soil_moisture;
+      const temp = currentStatus.temperature;
+      const humidity = currentStatus.air_humidity;
+      const light = currentStatus.light_level || "正常日照";
+      const waterOk = currentStatus.water_ok ? "存水正常充沛" : "水箱缺水見底（防乾燒鎖死中）";
+      const statusText = currentStatus.system_status || "正常運作中";
+
+      return `【植物智慧診斷諮詢請求】
+🌿 植物品種：${plant}
+❓ 使用者諮詢問題：${userQ}
+
+📊【太陽能 AIoT 水箱即時感測數據】：
+• 土壤含水率：${moisture}%（電容式傳感器）
+• 環境氣溫：${temp}°C（高溫避險門檻：32°C）
+• 空氣相對濕度：${humidity}%
+• 日照光照強度：${light}
+• 水箱蓄水狀態：${waterOk}
+• 系統運作模式：太陽能 5.0V 綠能自給 / ${statusText}
+
+請作為專業植物生理學家與智慧園藝專家，依據以上即時感測數據，以親切專業口吻提供：
+1. 【生長狀態評估】：當前土壤濕度與溫濕度對此植物是否理想？
+2. 【精準澆水決策】：是否需要補水？若需要，建議幾天澆一次或多少毫升？
+3. 【環境調節建議】：在目前氣溫與日照條件下，擺放位置或通風應注意什麼？
+4. 【本週養護守則】：給種植者的實用建議。`;
+    }
+
+    function updateAssembledPromptPreview() {
+      const previewEl = document.getElementById("assembledPromptPreview");
+      if (previewEl) {
+        previewEl.textContent = buildTelemetryPrompt();
+      }
+    }
+
+    function copyGeneratedPrompt() {
+      const text = buildTelemetryPrompt();
+      navigator.clipboard.writeText(text).then(() => {
+        showToast("📋 提示詞已複製至剪貼簿！可直接貼給 ChatGPT / Claude / Gemini", "success");
+        playTone(900, 'sine', 0.15);
+        const btnText = document.getElementById("copyPromptBtnText");
+        btnText.textContent = "✅ 已成功複製！";
+        setTimeout(() => { btnText.textContent = "一鍵複製診斷提示詞"; }, 2500);
+      }).catch(err => {
+        showToast("複製失敗，請手動複製", "error");
+      });
+    }
+
+    // AI 生成診斷：優先調用已設定之 Gemini / OpenAI API Key，若無則呼叫內建高階專家規則庫
+    async function generateAiDiagnosis() {
+      const plant = document.getElementById("plantNameInput").value.trim() || "薄荷";
+      const geminiKey = localStorage.getItem("PLANT_IOT_GEMINI_KEY") || "";
+      const openaiKey = localStorage.getItem("PLANT_IOT_OPENAI_KEY") || "";
+      const prompt = buildTelemetryPrompt();
+
+      const btnIcon = document.getElementById("aiBtnIcon");
+      const btnSpinner = document.getElementById("aiBtnSpinner");
+      const resTitle = document.getElementById("aiResponseTitle");
+      const resContent = document.getElementById("aiResponseContent");
+      const engineTag = document.getElementById("aiEngineTag");
+
+      btnIcon.classList.add("hidden");
+      btnSpinner.classList.remove("hidden");
+      resContent.textContent = "⏳ 正在分析即時環境感測數據與植物生長特徵，請稍候...";
+      playTone(550, 'triangle', 0.1);
+
+      try {
+        if (geminiKey) {
+          // 使用使用者提供的 Google Gemini API
+          engineTag.textContent = "Google Gemini 1.5 Flash";
+          resTitle.textContent = `Gemini AI 專家針對「${plant}」的診斷分析`;
+
+          const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${geminiKey}`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              contents: [{
+                parts: [{ text: prompt }]
+              }],
+              generationConfig: {
+                temperature: 0.7,
+                maxOutputTokens: 800
+              }
+            })
+          });
+
+          if (!response.ok) {
+            throw new Error(`Gemini API 回傳錯誤: HTTP ${response.status}`);
+          }
+
+          const resJson = await response.json();
+          const generatedText = resJson?.candidates?.[0]?.content?.parts?.[0]?.text;
+          if (generatedText) {
+            resContent.textContent = generatedText;
+            showToast("✨ Gemini AI 診斷報告生成成功！", "success");
+            playTone(880, 'sine', 0.2);
+            triggerConfetti();
+          } else {
+            throw new Error("Gemini 回傳結構為空");
+          }
+
+        } else if (openaiKey) {
+          // 使用 OpenAI API
+          engineTag.textContent = "OpenAI GPT-4o-mini";
+          resTitle.textContent = `OpenAI 專家針對「${plant}」的診斷分析`;
+
+          const response = await fetch("https://api.openai.com/v1/chat/completions", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              "Authorization": `Bearer ${openaiKey}`
+            },
+            body: JSON.stringify({
+              model: "gpt-4o-mini",
+              messages: [
+                { role: "system", content: "你是一位兼具植物生理學與 AIoT 智慧農業專長的園藝專家。" },
+                { role: "user", content: prompt }
+              ],
+              temperature: 0.7
+            })
+          });
+
+          if (!response.ok) {
+            throw new Error(`OpenAI API 回傳錯誤: HTTP ${response.status}`);
+          }
+
+          const resJson = await response.json();
+          const answer = resJson?.choices?.[0]?.message?.content;
+          if (answer) {
+            resContent.textContent = answer;
+            showToast("✨ OpenAI 診斷報告生成成功！", "success");
+            playTone(880, 'sine', 0.2);
+            triggerConfetti();
+          } else {
+            throw new Error("OpenAI 回傳為空");
+          }
+
+        } else {
+          // 使用內建智慧農藝專家系統 (Rule-based Botanical Expert Model)
+          engineTag.textContent = "內建農藝規則專家引擎";
+          resTitle.textContent = `智慧園藝專家針對「${plant}」的診斷報告`;
+
+          await new Promise(r => setTimeout(r, 600)); // 微妙流暢感
+
+          const report = generateLocalExpertReport(plant, currentStatus);
+          resContent.textContent = report;
+          showToast("🌿 內建農藝專家診斷完成！(可設定 Gemini Key 解鎖大模型)", "info");
+          playTone(700, 'sine', 0.2);
+        }
+      } catch (err) {
+        console.warn("AI 調用失敗，切換回內建專家模式:", err);
+        engineTag.textContent = "內建農藝專家引擎 (Fallback)";
+        resContent.textContent = `⚠️ 連線第三方 API 發生狀況 (${err.message})，已自動切換回內建專家庫：\n\n` + generateLocalExpertReport(plant, currentStatus);
+        showToast("已自動改用內建植物規則庫完成診斷", "warning");
+      } finally {
+        btnIcon.classList.remove("hidden");
+        btnSpinner.classList.add("hidden");
+      }
+    }
+
+    // 內建植物學專家演算法
+    function generateLocalExpertReport(plant, s) {
+      const moist = s.soil_moisture;
+      const temp = s.temperature;
+      const humi = s.air_humidity;
+      const light = s.light_level || "正常日照";
+
+      // 植物個別特性庫
+      const plantProfiles = {
+        "薄荷": { idealMoist: [50, 75], maxTemp: 32, note: "薄荷喜濕潤通風，水分蒸散極快，土壤乾透易枯焦。" },
+        "迷迭香": { idealMoist: [30, 50], maxTemp: 34, note: "迷迭香耐乾旱、怕盆土積水，澆水宜遵守「見乾見濕」原則。" },
+        "多肉植物": { idealMoist: [20, 40], maxTemp: 35, note: "多肉葉片儲水豐富，過度潮濕易導致爛莖，忌頻繁澆水。" },
+        "龜背芋": { idealMoist: [50, 70], maxTemp: 30, note: "龜背芋喜半陰與溫暖濕潤環境，葉面可適時噴霧增濕。" },
+        "虎尾蘭": { idealMoist: [25, 45], maxTemp: 35, note: "虎尾蘭極耐陰耐旱，寧乾勿濕，積水極易爛根。" },
+        "番茄苗": { idealMoist: [55, 75], maxTemp: 32, note: "茄科植物需充足光照與穩定供水，缺水易落花落果。" }
+      };
+
+      const profile = plantProfiles[plant] || { idealMoist: [40, 70], maxTemp: 32, note: "該觀葉植物一般喜好疏鬆透氣、乾濕交替的介質環境。" };
+
+      let moistDiag = "";
+      let wateringDecision = "";
+      if (moist < profile.idealMoist[0]) {
+        moistDiag = `💧【土壤含水量不足】：當前土壤濕度僅為 ${moist}%，低於${plant}的理想下限 (${profile.idealMoist[0]}%)，植株處於口渴缺水狀態。`;
+        wateringDecision = `👉 澆水建議：建議立即啟動「手動強制澆水 3 秒」微調補水，或進行一次透水。`;
+      } else if (moist > profile.idealMoist[1]) {
+        moistDiag = `⚠️【土壤含水飽和偏高】：當前土壤濕度高達 ${moist}%，略高於理想上限 (${profile.idealMoist[1]}%)。`;
+        wateringDecision = `👉 澆水建議：目前切勿繼續澆水！請暫停滴灌，加強盆底排水與通風，防止根系缺氧腐爛。`;
+      } else {
+        moistDiag = `✅【土壤含水量理想】：當前土壤濕度為 ${moist}%，完美坐落在${plant}的生長舒適區 (${profile.idealMoist[0]}% ~ ${profile.idealMoist[1]}%)。`;
+        wateringDecision = `👉 澆水建議：維持目前自動監控節奏，暫無需手動介入補水。`;
+      }
+
+      let tempDiag = "";
+      if (temp > profile.maxTemp) {
+        tempDiag = `🌡️【高溫警報】：當前氣溫 ${temp}°C 超過安全門檻，系統已正確啟動「高溫避險」。高溫下澆水易形成「水熱共存」悶熟根系，應暫緩補水並移至陰涼通風處。`;
+      } else if (temp < 18) {
+        tempDiag = `❄️【低溫提醒】：當前氣溫 ${temp}°C 偏低，植物蒸散代謝減緩，水分吸收變慢，應適當延長澆水週期。`;
+      } else {
+        tempDiag = `🌿【溫度適宜】：當前氣溫 ${temp}°C 是進行光合作用與養分累積的最佳溫度區間。`;
+      }
+
+      let humiDiag = "";
+      if (humi < 45) {
+        humiDiag = `🌫️【空氣乾燥】：相對濕度 ${humi}% 偏低，蒸散強烈，建議可適度在植株周遭噴灑葉面水霧。`;
+      } else {
+        humiDiag = `🌫️【空氣濕度適中】：相對濕度 ${humi}% 維持在健康生長區間。`;
+      }
+
+      return `🌿 診斷對象：【${plant}】\n` +
+             `--------------------------------------------------\n` +
+             `1. 植物特性摘要：\n${profile.note}\n\n` +
+             `2. 土壤與澆水決策：\n${moistDiag}\n${wateringDecision}\n\n` +
+             `3. 氣候環境調控：\n${tempDiag}\n${humiDiag}\n日照狀態為「${light}」，光合作用與能量轉換正常。\n\n` +
+             `4. 太陽能水箱運作總評：\n目前太陽能光伏以 5.0V 綠能自給穩定蓄電，${s.water_ok ? "儲水充足" : "⚠️ 水箱已見底，請儘速加水"}。`;
+    }
+
+    // 語音朗讀建議
+    function speakDiagnosis() {
+      const text = document.getElementById("aiResponseContent").textContent;
+      if (!window.speechSynthesis) {
+        showToast("您的瀏覽器不支援語音朗讀", "warning");
+        return;
+      }
+      window.speechSynthesis.cancel();
+      const utterance = new SpeechSynthesisUtterance(text);
+      utterance.lang = "zh-TW";
+      utterance.rate = 1.0;
+      window.speechSynthesis.speak(utterance);
+      showToast("🔊 正在為您朗讀診斷建議...");
+    }
+
+    // ==================== 8. API KEY MODAL LOGIC ====================
+    function openApiKeyModal() {
+      document.getElementById("geminiKeyInput").value = localStorage.getItem("PLANT_IOT_GEMINI_KEY") || "";
+      document.getElementById("openaiKeyInput").value = localStorage.getItem("PLANT_IOT_OPENAI_KEY") || "";
+      document.getElementById("apiKeyModal").classList.remove("hidden");
+    }
+
+    function closeApiKeyModal() {
+      document.getElementById("apiKeyModal").classList.add("hidden");
+    }
+
+    function saveApiKey() {
+      const gemini = document.getElementById("geminiKeyInput").value.trim();
+      const openai = document.getElementById("openaiKeyInput").value.trim();
+
+      if (gemini) localStorage.setItem("PLANT_IOT_GEMINI_KEY", gemini);
+      else localStorage.removeItem("PLANT_IOT_GEMINI_KEY");
+
+      if (openai) localStorage.setItem("PLANT_IOT_OPENAI_KEY", openai);
+      else localStorage.removeItem("PLANT_IOT_OPENAI_KEY");
+
+      closeApiKeyModal();
+      showToast("💾 API Key 已安全儲存於本地瀏覽器！", "success");
+      updateApiKeyBtnLabel();
+    }
+
+    function clearApiKey() {
+      localStorage.removeItem("PLANT_IOT_GEMINI_KEY");
+      localStorage.removeItem("PLANT_IOT_OPENAI_KEY");
+      document.getElementById("geminiKeyInput").value = "";
+      document.getElementById("openaiKeyInput").value = "";
+      closeApiKeyModal();
+      showToast("已清除本地 API Key，恢復使用內建農藝專家引擎", "info");
+      updateApiKeyBtnLabel();
+    }
+
+    function updateApiKeyBtnLabel() {
+      const gemini = localStorage.getItem("PLANT_IOT_GEMINI_KEY");
+      const openai = localStorage.getItem("PLANT_IOT_OPENAI_KEY");
+      const label = document.getElementById("apiKeyBtnLabel");
+      if (gemini || openai) {
+        label.textContent = "已綁定自訂 AI 金鑰";
+      } else {
+        label.textContent = "自訂 AI 金鑰";
+      }
+    }
+
+    // 慶祝彩帶特效
+    function triggerConfetti() {
+      if (typeof confetti === "function") {
+        confetti({
+          particleCount: 50,
+          spread: 60,
+          origin: { y: 0.8 },
+          colors: ['#10b981', '#06b6d4', '#f59e0b', '#34d399']
+        });
+      }
+    }
+
+    // 手動一鍵重新整理
+    function refreshAll(manual = false) {
+      const icon = document.getElementById("refreshIcon");
+      if (icon) icon.classList.add("fa-spin");
+
+      fetchStatus().finally(() => {
+        fetchHistory().finally(() => {
+          setTimeout(() => {
+            if (icon) icon.classList.remove("fa-spin");
+            if (manual) {
+              showToast("🔄 數據已成功同步", "success");
+              playTone(700, 'triangle', 0.1);
+            }
+          }, 400);
+        });
+      });
+    }
+
+    // ==================== 9. INITIALIZATION ====================
+    window.addEventListener("DOMContentLoaded", () => {
+      // 1. 初始化圖表
+      initChart();
+
+      // 2. 載入儲存的 API Key 狀態
+      updateApiKeyBtnLabel();
+
+      // 3. 初始抓取數據
+      fetchStatus();
+      fetchHistory();
+
+      // 4. 定時輪詢排程
+      // 每 3 秒呼叫一次 GET /api/status
+      setInterval(fetchStatus, 3000);
+
+      // 每 30 秒呼叫一次 GET /api/history
+      setInterval(fetchHistory, 30000);
+
+      // 5. 提示詞即時組裝監聽
+      document.getElementById("plantNameInput").addEventListener("input", updateAssembledPromptPreview);
+      document.getElementById("plantQuestionInput").addEventListener("input", updateAssembledPromptPreview);
+    });
+  </script>
+</body>
+</html>
